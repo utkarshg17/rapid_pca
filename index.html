@@ -3,95 +3,136 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RapidPCA</title>
+  <title>Rapid PCA</title>
   <style>
-    :root {
-      --bg: #0f172a;
-      --card: #111827;
-      --text: #f8fafc;
-      --muted: #cbd5e1;
-      --accent: #f59e0b;
-      --line: #334155;
+    * {
+      box-sizing: border-box;
     }
 
-    * { box-sizing: border-box; }
+    :root {
+      --bg: #000000;
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.65);
+      --soft: rgba(255, 255, 255, 0.08);
+      --soft-2: rgba(255, 255, 255, 0.14);
+    }
 
     body {
       margin: 0;
       font-family: Arial, Helvetica, sans-serif;
-      background: linear-gradient(135deg, #0f172a, #1e293b);
+      background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid var(--soft-2);
+    }
+
+    .brand {
+      font-size: 13px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .login-btn {
+      background: transparent;
+      color: white;
+      border: 1px solid white;
+      border-radius: 999px;
+      padding: 10px 18px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .login-btn:hover {
+      background: white;
+      color: black;
+    }
+
+    .hero {
+      flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      padding: 32px;
+      text-align: center;
     }
 
-    .card {
-      width: 100%;
-      max-width: 760px;
-      background: rgba(17, 24, 39, 0.9);
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      padding: 40px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    .hero-inner {
+      max-width: 850px;
     }
 
-    .tag {
-      display: inline-block;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(245, 158, 11, 0.12);
-      color: var(--accent);
-      border: 1px solid rgba(245, 158, 11, 0.35);
-      font-size: 14px;
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.5);
       margin-bottom: 18px;
     }
 
     h1 {
-      margin: 0 0 12px;
-      font-size: 42px;
-      line-height: 1.1;
-    }
-
-    p {
       margin: 0;
-      color: var(--muted);
+      font-size: 56px;
+      line-height: 1.1;
+      font-weight: 600;
+    }
+
+    .subtitle {
+      margin: 24px auto 0;
+      max-width: 680px;
       font-size: 18px;
-      line-height: 1.65;
+      line-height: 1.7;
+      color: var(--muted);
     }
 
-    .section {
-      margin-top: 28px;
-      padding-top: 24px;
-      border-top: 1px solid var(--line);
-    }
+    @media (max-width: 768px) {
+      .header {
+        padding: 18px 20px;
+      }
 
-    .small {
-      font-size: 15px;
-      color: #94a3b8;
-      margin-top: 14px;
+      h1 {
+        font-size: 38px;
+      }
+
+      .subtitle {
+        font-size: 16px;
+      }
+
+      .login-btn {
+        padding: 9px 16px;
+      }
     }
   </style>
 </head>
 <body>
-  <main class="card">
-    <div class="tag">RapidPCA · Construction Field-to-Office Platform</div>
-    <h1>Hello, world.</h1>
-    <p>
-      This is the first live version of <strong>rapidpca.com</strong>.
-      The long-term goal is to create a platform that connects field construction updates
-      with office teams in real time. Now i am making some changes to see if this is going to work or not.
-    </p>
+  <div class="page">
+    <header class="header">
+      <div class="brand">Rapid PCA</div>
+      <button class="login-btn">Login</button>
+    </header>
 
-    <div class="section">
-      <p>
-        Today this page is just a deployment test. Soon it will become the starting point for
-        daily site updates, progress visibility, and office-side decision support.
-      </p>
-      <div class="small">If you can see this page on your domain, GitHub + Render + custom domain are working correctly.</div>
-    </div>
-  </main>
+    <section class="hero">
+      <div class="hero-inner">
+        <div class="eyebrow">Construction Data Management</div>
+        <h1>Welcome to Rapid PCA</h1>
+        <p class="subtitle">
+          A simple platform to connect field updates with office visibility in one place.
+        </p>
+      </div>
+    </section>
+  </div>
 </body>
 </html>
