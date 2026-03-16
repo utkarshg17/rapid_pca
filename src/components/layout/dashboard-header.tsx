@@ -1,4 +1,6 @@
 import Link from "next/link";
+
+import { ProfileButton } from "@/features/auth/components/profile-button";
 import { LogoutButton } from "@/features/auth/components/logout-button";
 
 export function DashboardHeader() {
@@ -11,7 +13,10 @@ export function DashboardHeader() {
         Rapid PCA
       </Link>
 
-      <LogoutButton />
+      <div className="flex items-center gap-3">
+        <ProfileButton />
+        <LogoutButton />
+      </div>
     </header>
   );
 }
