@@ -16,7 +16,7 @@ export function DashboardSidebar({
   onTabChange,
 }: DashboardSidebarProps) {
   return (
-    <aside className="w-full border-b border-white/10 pb-6 md:w-72 md:border-b-0 md:border-r md:pb-0 md:pr-6">
+    <aside className="w-full border-b border-white/10 pb-6 md:w-72 md:border-b-0 md:pb-0 md:pr-6">
       <div className="rounded-3xl border border-white/10 bg-neutral-950 p-4">
         <p className="mb-4 text-xs uppercase tracking-[0.3em] text-white/45">
           Navigation
