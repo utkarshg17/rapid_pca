@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { PageShell } from "@/components/layout/page-shell";
 import {
@@ -37,15 +38,15 @@ export default function DashboardPage() {
   function renderMainPanel() {
     if (isLoading) {
       return (
-        <section className="rounded-3xl border border-white/10 bg-neutral-950 p-8">
-          <p className="text-white/65">Loading dashboard...</p>
-        </section>
+        <div className="rounded-3xl border border-white/10 bg-black/30 p-6 text-white">
+          Loading dashboard...
+        </div>
       );
     }
 
     switch (activeTab) {
       case "projects":
-        return <DashboardProjectsPanel />;
+        return <DashboardProjectsPanel profile={profile} />;
       case "reports":
         return <DashboardReportsPanel />;
       case "overview":
@@ -56,20 +57,18 @@ export default function DashboardPage() {
 
   return (
     <PageShell>
-      <DashboardHeader />
+      <div className="min-h-screen bg-black text-white">
+        <DashboardHeader />
 
-      <section className="px-6 py-8 md:px-10">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 md:flex-row">
-          <div className="w-full md:w-72 md:flex-shrink-0">
-            <DashboardSidebar
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-            />
-          </div>
+        <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <DashboardSidebar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+          />
 
-          <div className="min-w-0 flex-1">{renderMainPanel()}</div>
+          <main>{renderMainPanel()}</main>
         </div>
-      </section>
+      </div>
     </PageShell>
   );
 }
