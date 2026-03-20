@@ -26,6 +26,14 @@ export type ProjectRecord = {
   } | null;
 };
 
+export type ProjectAccessUser = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email_id: string | null;
+  role: string | null;
+};
+
 export type CreateProjectInput = {
   project_name: string;
   project_type_id: number;

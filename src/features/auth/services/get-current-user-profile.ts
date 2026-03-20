@@ -16,33 +16,30 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
     error: userError,
   } = await supabase.auth.getUser();
 
-  console.log("Auth user:", user);
-  console.log("Auth user error:", userError);
-
   if (userError || !user?.id) {
     return null;
   }
 
-  const { data, error, status, statusText } = await supabase
+  const { data, error } = await supabase
     .from("user_database")
     .select(
       "id, first_name, last_name, email_id, role, is_active, auth_user_id"
     )
     .eq("auth_user_id", user.id)
+    .limit(1)
     .maybeSingle();
 
-  console.log("Profile query status:", status, statusText);
-  console.log("Profile query data:", data);
-  console.log("Profile query error:", error);
-  console.log("Logged in auth user id:", user.id);
-
   if (error) {
-    console.error("Error fetching user profile:", {
-      message: error.message,
-      details: error.details,
-      hint: error.hint,
-      code: error.code,
-    });
+    const isNoRowResponse =
+      error.code === "PGRST116" ||
+      error.details?.includes("0 rows") ||
+      error.message?.includes("0 rows");
+
+    if (isNoRowResponse) {
+      return null;
+    }
+
+    console.warn("Error fetching user profile:", error.message);
     return null;
   }
 
