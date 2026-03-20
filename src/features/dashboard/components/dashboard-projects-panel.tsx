@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
 import { AddProjectDialog } from "@/features/projects/components/add-project-dialog";
 import { ProjectTile } from "@/features/projects/components/project-tile";
@@ -20,7 +20,7 @@ export function DashboardProjectsPanel({
 
   const isAdmin = profile?.role === "Admin";
 
-  async function loadProjects() {
+  const loadProjects = useCallback(async () => {
     setIsLoading(true);
     try {
       const projectRows = await getProjectsForUser(profile);
@@ -31,21 +31,21 @@ export function DashboardProjectsPanel({
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [profile]);
 
   useEffect(() => {
     loadProjects();
-  }, [profile?.id, profile?.role]);
+  }, [loadProjects]);
 
   return (
-    <section className="space-y-6 text-white">
-      <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-black/40 p-6 md:flex-row md:items-center md:justify-between">
+    <section className="space-y-6 text-[var(--foreground)]">
+      <div className="flex flex-col gap-4 rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6 md:flex-row md:items-center md:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-white/45">
+          <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
             Projects
           </p>
           <h1 className="mt-2 text-2xl font-semibold">Project Directory</h1>
-          <p className="mt-2 max-w-2xl text-sm text-white/60">
+          <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
             View the projects available in the system and add new ones if you
             have Admin access.
           </p>
@@ -63,13 +63,13 @@ export function DashboardProjectsPanel({
       </div>
 
       {isLoading ? (
-        <div className="rounded-3xl border border-white/10 bg-black/30 p-6 text-sm text-white/65">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6 text-sm text-[var(--muted)]">
           Loading projects...
         </div>
       ) : projects.length === 0 ? (
-        <div className="rounded-3xl border border-dashed border-white/15 bg-black/20 p-10 text-center">
+        <div className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--panel-soft)] p-10 text-center">
           <h2 className="text-lg font-semibold">No projects found</h2>
-          <p className="mt-2 text-sm text-white/60">
+          <p className="mt-2 text-sm text-[var(--muted)]">
             Once projects are added, they will appear here as tiles.
           </p>
         </div>

@@ -1,11 +1,47 @@
 @import "tailwindcss";
 
 :root {
-  --background: #000000;
-  --foreground: #ffffff;
-  --muted: rgba(255, 255, 255, 0.65);
+  --background: #050505;
+  --foreground: #fafafa;
+  --muted: rgba(255, 255, 255, 0.72);
+  --subtle: rgba(255, 255, 255, 0.5);
   --border: rgba(255, 255, 255, 0.14);
-  --panel: #0c0c0c;
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --panel: #0f0f0f;
+  --panel-soft: rgba(255, 255, 255, 0.03);
+  --panel-strong: rgba(255, 255, 255, 0.06);
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-strong: rgba(255, 255, 255, 0.1);
+  --overlay: rgba(0, 0, 0, 0.65);
+  --inverse-bg: #ffffff;
+  --inverse-fg: #000000;
+  --input-bg: #070707;
+  --input-readonly: rgba(255, 255, 255, 0.05);
+  --placeholder: rgba(255, 255, 255, 0.35);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+html[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #111111;
+  --muted: rgba(17, 17, 17, 0.76);
+  --subtle: rgba(17, 17, 17, 0.56);
+  --border: rgba(17, 17, 17, 0.12);
+  --border-strong: rgba(17, 17, 17, 0.22);
+  --panel: #f5f5f5;
+  --panel-soft: rgba(17, 17, 17, 0.02);
+  --panel-strong: rgba(17, 17, 17, 0.05);
+  --surface: rgba(17, 17, 17, 0.04);
+  --surface-strong: rgba(17, 17, 17, 0.08);
+  --overlay: rgba(17, 17, 17, 0.35);
+  --inverse-bg: #111111;
+  --inverse-fg: #ffffff;
+  --input-bg: #ffffff;
+  --input-readonly: rgba(17, 17, 17, 0.04);
+  --placeholder: rgba(17, 17, 17, 0.4);
+  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.12);
+  --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
 }
 
 html,
@@ -13,6 +49,10 @@ body {
   background: var(--background);
   color: var(--foreground);
   min-height: 100%;
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out,
+    border-color 180ms ease-out;
 }
 
 body {
@@ -21,4 +61,15 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out,
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out;
 }

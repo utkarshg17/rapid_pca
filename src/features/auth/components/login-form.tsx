@@ -39,19 +39,19 @@ export function LoginForm() {
 
   return (
     <Card className="w-full max-w-md p-8">
-      <p className="mb-3 text-xs uppercase tracking-[0.3em] text-white/45">
+      <p className="mb-3 text-xs uppercase tracking-[0.3em] text-[var(--subtle)]">
         Secure Access
       </p>
 
       <h1 className="text-3xl font-semibold">Login</h1>
 
-      <p className="mt-3 text-sm leading-6 text-white/65">
+      <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
         Enter your email ID and password to continue.
       </p>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         <div className="space-y-2">
-          <label htmlFor="email" className="block text-sm text-white/90">
+          <label htmlFor="email" className="block text-sm text-[var(--muted)]">
             Email ID
           </label>
           <Input
@@ -66,7 +66,7 @@ export function LoginForm() {
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="block text-sm text-white/90">
+          <label htmlFor="password" className="block text-sm text-[var(--muted)]">
             Password
           </label>
           <Input
@@ -81,16 +81,12 @@ export function LoginForm() {
         </div>
 
         {errorMessage ? (
-          <div className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--foreground)]">
             {errorMessage}
           </div>
         ) : null}
 
-        <Button
-          type="submit"
-          className="w-full bg-white text-black hover:bg-white hover:text-black"
-          disabled={isLoading}
-        >
+        <Button type="submit" className="w-full" disabled={isLoading}>
           {isLoading ? "Logging in..." : "Login"}
         </Button>
       </form>

@@ -38,7 +38,7 @@ export default function DashboardPage() {
   function renderMainPanel() {
     if (isLoading) {
       return (
-        <div className="rounded-3xl border border-white/10 bg-black/30 p-6 text-white">
+        <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6 text-[var(--foreground)]">
           Loading dashboard...
         </div>
       );
@@ -57,7 +57,7 @@ export default function DashboardPage() {
 
   return (
     <PageShell>
-      <div className="min-h-screen bg-black text-white">
+      <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
         <DashboardHeader />
 
         <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)]">

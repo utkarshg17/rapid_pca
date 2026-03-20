@@ -171,17 +171,17 @@ export function AddProjectDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
       onClick={handleClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-white/10 bg-[#0f0f0f] p-6 text-white shadow-2xl"
+        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold">Add New Project</h2>
-            <p className="mt-1 text-sm text-white/60">
+            <p className="mt-1 text-sm text-[var(--muted)]">
               Create a new project and make it available in the Projects tab.
             </p>
           </div>
@@ -189,7 +189,7 @@ export function AddProjectDialog({
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-white/10"
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
           >
             Close
           </button>
@@ -199,7 +199,7 @@ export function AddProjectDialog({
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">Project Identity</h3>
-              <p className="text-sm text-white/55">
+              <p className="text-sm text-[var(--subtle)]">
                 Basic identifying information for the project.
               </p>
             </div>
@@ -220,7 +220,7 @@ export function AddProjectDialog({
                   type="text"
                   value={projectCodePreview}
                   readOnly
-                  className={`${inputClassName} cursor-not-allowed bg-white/5 text-white/60`}
+                  className={`${inputClassName} cursor-not-allowed bg-[var(--input-readonly)] text-[var(--muted)]`}
                 />
               </Field>
 
@@ -263,7 +263,7 @@ export function AddProjectDialog({
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">Project Location</h3>
-              <p className="text-sm text-white/55">
+              <p className="text-sm text-[var(--subtle)]">
                 Where the project is located.
               </p>
             </div>
@@ -314,7 +314,7 @@ export function AddProjectDialog({
           <section className="space-y-4">
             <div>
               <h3 className="text-lg font-semibold">Stakeholders</h3>
-              <p className="text-sm text-white/55">
+              <p className="text-sm text-[var(--subtle)]">
                 Core project stakeholders and team members.
               </p>
             </div>
@@ -386,7 +386,7 @@ export function AddProjectDialog({
 }
 
 const inputClassName =
-  "w-full rounded-2xl border border-white/10 bg-black px-4 py-3 text-sm text-white outline-none transition duration-200 placeholder:text-white/30 focus:border-white/30";
+  "w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition duration-200 placeholder:text-[var(--placeholder)] focus:border-[var(--border-strong)]";
 
 type FieldProps = {
   label: string;
@@ -397,7 +397,7 @@ type FieldProps = {
 function Field({ label, children, required = false }: FieldProps) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-medium text-white/85">
+      <span className="mb-2 block text-sm font-medium text-[var(--muted)]">
         {label}
         {required ? <span className="ml-1 text-red-300">*</span> : null}
       </span>

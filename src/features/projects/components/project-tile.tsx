@@ -5,38 +5,46 @@ type ProjectTileProps = {
 };
 
 function formatDate(dateValue: string | null) {
-  if (!dateValue) return "—";
+  if (!dateValue) return "N/A";
 
   const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "—";
+  if (Number.isNaN(date.getTime())) return "N/A";
 
   return date.toLocaleDateString();
 }
 
 function formatLocation(project: ProjectRecord) {
   const parts = [project.city, project.state, project.country].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : "—";
+  return parts.length > 0 ? parts.join(", ") : "N/A";
 }
 
 export function ProjectTile({ project }: ProjectTileProps) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/40 p-5 text-white shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+    <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-5 text-[var(--foreground)] shadow-[var(--shadow-md)]">
       <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold">{project.project_name}</h3>
-          <p className="mt-1 text-sm text-white/65">{project.project_code}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {project.project_code}
+          </p>
         </div>
 
-        <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs text-white/80">
-          {project.project_type_options?.type_name ?? "—"}
+        <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs text-[var(--muted)]">
+          {project.project_type_options?.type_name ?? "N/A"}
         </span>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <InfoBlock label="Expected Start Date" value={formatDate(project.expected_start_date)} />
+        <InfoBlock
+          label="Expected Start Date"
+          value={formatDate(project.expected_start_date)}
+        />
         <InfoBlock label="Location" value={formatLocation(project)} />
-        <InfoBlock label="Client Name" value={project.client_name || "—"} />
-        <InfoBlock label="Project Manager" value={project.project_manager || "—"} />
+        <InfoBlock label="Client Name" value={project.client_name || "N/A"} />
+        <InfoBlock
+          label="Project Manager"
+          value={project.project_manager || "N/A"}
+        />
       </div>
     </div>
   );
@@ -49,11 +57,11 @@ type InfoBlockProps = {
 
 function InfoBlock({ label, value }: InfoBlockProps) {
   return (
-    <div className="rounded-2xl border border-white/8 bg-white/5 px-4 py-3">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--subtle)]">
         {label}
       </p>
-      <p className="mt-1 text-sm text-white">{value}</p>
+      <p className="mt-1 text-sm text-[var(--foreground)]">{value}</p>
     </div>
   );
 }
