@@ -32,6 +32,10 @@ function getThemeSnapshot(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark";
 }
 
+function getServerThemeSnapshot(): Theme {
+  return "dark";
+}
+
 function subscribe(listener: () => void) {
   listeners.add(listener);
 
@@ -62,7 +66,11 @@ function updateTheme(theme: Theme) {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const theme = useSyncExternalStore(subscribe, getThemeSnapshot, () => "dark");
+  const theme = useSyncExternalStore(
+    subscribe,
+    getThemeSnapshot,
+    getServerThemeSnapshot
+  );
 
   return (
     <ThemeContext.Provider
