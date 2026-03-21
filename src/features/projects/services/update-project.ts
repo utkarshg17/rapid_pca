@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { CreateProjectInput, ProjectRecord } from "@/features/projects/types/project";
+import { normalizeProjectRecord } from "@/features/projects/utils/normalize-project-record";
 
 export async function updateProject(
   projectId: number,
@@ -68,5 +69,5 @@ export async function updateProject(
     throw new Error(error.message || "Failed to update project.");
   }
 
-  return data as ProjectRecord;
+  return normalizeProjectRecord(data);
 }

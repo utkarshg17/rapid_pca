@@ -1,6 +1,10 @@
 import { supabase } from "@/lib/supabase/client";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
 import type { ProjectRecord } from "@/features/projects/types/project";
+import {
+  normalizeProjectRecords,
+  type RawProjectRecord,
+} from "@/features/projects/utils/normalize-project-record";
 
 export async function getProjectsForUser(
   profile: UserProfile | null
@@ -19,6 +23,14 @@ export async function getProjectsForUser(
         project_name,
         project_code,
         expected_start_date,
+        plot_area,
+        project_footprint,
+        basement_count,
+        stilt_count,
+        podium_count,
+        floor_count,
+        foundation_type,
+        super_structure_type,
         city,
         state,
         country,
@@ -42,7 +54,7 @@ export async function getProjectsForUser(
       return [];
     }
 
-    return (data ?? []) as unknown as ProjectRecord[];
+    return normalizeProjectRecords((data ?? []) as RawProjectRecord[]);
   }
 
   const { data: accessRows, error: accessError } = await supabase
@@ -76,6 +88,14 @@ export async function getProjectsForUser(
       project_name,
       project_code,
       expected_start_date,
+      plot_area,
+      project_footprint,
+      basement_count,
+      stilt_count,
+      podium_count,
+      floor_count,
+      foundation_type,
+      super_structure_type,
       city,
       state,
       country,
@@ -100,5 +120,5 @@ export async function getProjectsForUser(
     return [];
   }
 
-  return (data ?? []) as unknown as ProjectRecord[];
+  return normalizeProjectRecords((data ?? []) as RawProjectRecord[]);
 }

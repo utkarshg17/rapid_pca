@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { ProjectRecord } from "@/features/projects/types/project";
+import { normalizeProjectRecord } from "@/features/projects/utils/normalize-project-record";
 
 export async function getProjectById(
   projectId: number
@@ -45,5 +46,5 @@ export async function getProjectById(
     return null;
   }
 
-  return (data ?? null) as ProjectRecord | null;
+  return data ? normalizeProjectRecord(data) : null;
 }

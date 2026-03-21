@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import type { CreateProjectInput } from "@/features/projects/types/project";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
+import { normalizeProjectRecord } from "@/features/projects/utils/normalize-project-record";
 
 export async function createProject(
   input: CreateProjectInput,
@@ -78,5 +79,5 @@ export async function createProject(
     throw new Error(error.message || "Failed to create project.");
   }
 
-  return data;
+  return normalizeProjectRecord(data);
 }
