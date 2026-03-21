@@ -1,33 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
+import { useEffect, useState } from "react";
 import {
   initialProjectFormState,
   ProjectFormFields,
   type ProjectFormState,
 } from "@/features/projects/components/project-form-fields";
-import { createProject } from "@/features/projects/services/create-project";
 import { getProjectTypeOptions } from "@/features/projects/services/get-project-type-options";
+import { updateProject } from "@/features/projects/services/update-project";
 import type {
   CreateProjectInput,
+  ProjectRecord,
   ProjectTypeOption,
 } from "@/features/projects/types/project";
 
-type AddProjectDialogProps = {
+type EditProjectDialogProps = {
   isOpen: boolean;
+  project: ProjectRecord;
   onClose: () => void;
-  onProjectCreated: () => Promise<void> | void;
-  profile: UserProfile;
+  onProjectUpdated: (project: ProjectRecord) => void;
 };
-
-function getPreviewProjectCode(dateString: string) {
-  const year = dateString
-    ? new Date(dateString).getFullYear()
-    : new Date().getFullYear();
-
-  return `P${year}001`;
-}
 
 function parseNullableNumber(value: string) {
   if (!value.trim()) return null;
@@ -43,25 +35,59 @@ function parseNullableInteger(value: string) {
   return Number.isFinite(parsedValue) ? parsedValue : null;
 }
 
-export function AddProjectDialog({
+function toCountValue(value: number | null, fallback: string) {
+  return value === null ? fallback : String(value);
+}
+
+function buildInitialFormState(project: ProjectRecord): ProjectFormState {
+  return {
+    ...initialProjectFormState,
+    project_name: project.project_name,
+    expected_start_date: project.expected_start_date ?? "",
+    plot_area: project.plot_area === null ? "" : String(project.plot_area),
+    project_footprint:
+      project.project_footprint === null
+        ? ""
+        : String(project.project_footprint),
+    basement_count: toCountValue(project.basement_count, "0"),
+    stilt_count: toCountValue(project.stilt_count, "0"),
+    podium_count: toCountValue(project.podium_count, "0"),
+    floor_count: toCountValue(project.floor_count, "1"),
+    foundation_type: project.foundation_type ?? "",
+    super_structure_type: project.super_structure_type ?? "",
+    city: project.city ?? "",
+    state: project.state ?? "",
+    country: project.country ?? "",
+    site_address: project.site_address ?? "",
+    client_name: project.client_name ?? "",
+    architect: project.architect ?? "",
+    project_manager: project.project_manager ?? "",
+    site_incharge: project.site_incharge ?? "",
+    project_type_id: project.project_type_options
+      ? String(project.project_type_options.id)
+      : "",
+  };
+}
+
+export function EditProjectDialog({
   isOpen,
+  project,
   onClose,
-  onProjectCreated,
-  profile,
-}: AddProjectDialogProps) {
-  const [form, setForm] = useState<ProjectFormState>(initialProjectFormState);
+  onProjectUpdated,
+}: EditProjectDialogProps) {
+  const [form, setForm] = useState<ProjectFormState>(() =>
+    buildInitialFormState(project)
+  );
   const [projectTypes, setProjectTypes] = useState<ProjectTypeOption[]>([]);
   const [isLoadingProjectTypes, setIsLoadingProjectTypes] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const projectCodePreview = useMemo(
-    () => getPreviewProjectCode(form.expected_start_date),
-    [form.expected_start_date]
-  );
-
   useEffect(() => {
     if (!isOpen) return;
+
+    setForm(buildInitialFormState(project));
+    setErrorMessage("");
 
     async function loadProjectTypes() {
       setIsLoadingProjectTypes(true);
@@ -72,7 +98,11 @@ export function AddProjectDialog({
         if (options.length > 0) {
           setForm((prev) => ({
             ...prev,
-            project_type_id: prev.project_type_id || String(options[0].id),
+            project_type_id:
+              prev.project_type_id ||
+              (project.project_type_options
+                ? String(project.project_type_options.id)
+                : String(options[0].id)),
           }));
         }
       } finally {
@@ -81,7 +111,7 @@ export function AddProjectDialog({
     }
 
     loadProjectTypes();
-  }, [isOpen]);
+  }, [isOpen, project]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -104,11 +134,6 @@ export function AddProjectDialog({
       ...prev,
       [key]: value,
     }));
-  }
-
-  function resetDialog() {
-    setForm(initialProjectFormState);
-    setErrorMessage("");
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -149,24 +174,17 @@ export function AddProjectDialog({
 
     setIsSubmitting(true);
     try {
-      await createProject(payload, profile);
-      await onProjectCreated();
-      resetDialog();
+      const updatedProject = await updateProject(project.id, payload);
+      onProjectUpdated(updatedProject);
       onClose();
     } catch (error) {
       console.error(error);
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to add project."
+        error instanceof Error ? error.message : "Failed to update project."
       );
     } finally {
       setIsSubmitting(false);
     }
-  }
-
-  function handleClose() {
-    if (isSubmitting) return;
-    resetDialog();
-    onClose();
   }
 
   if (!isOpen) return null;
@@ -174,7 +192,7 @@ export function AddProjectDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
-      onClick={handleClose}
+      onClick={onClose}
     >
       <div
         className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
@@ -182,15 +200,15 @@ export function AddProjectDialog({
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold">Add New Project</h2>
+            <h2 className="text-2xl font-semibold">Edit Project</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Create a new project and make it available in the Projects tab.
+              Update the project details shown in the overview and setup fields.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={handleClose}
+            onClick={onClose}
             className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
           >
             Close
@@ -203,7 +221,7 @@ export function AddProjectDialog({
             updateField={updateField}
             projectTypes={projectTypes}
             isLoadingProjectTypes={isLoadingProjectTypes}
-            projectCodeValue={projectCodePreview}
+            projectCodeValue={project.project_code}
           />
 
           {errorMessage ? (
@@ -218,7 +236,7 @@ export function AddProjectDialog({
               disabled={isSubmitting}
               className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
             >
-              {isSubmitting ? "Adding Project..." : "Add Project"}
+              {isSubmitting ? "Saving Changes..." : "Save Changes"}
             </button>
           </div>
         </form>

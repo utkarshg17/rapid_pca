@@ -10,7 +10,9 @@ import {
   getCurrentUserProfile,
   type UserProfile,
 } from "@/features/auth/services/get-current-user-profile";
+import { EditProjectDialog } from "@/features/projects/components/edit-project-dialog";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
+import { UnitQuantitiesPanel } from "@/features/projects/components/unit-quantities-panel";
 import { getProjectById } from "@/features/projects/services/get-project-by-id";
 import type { ProjectRecord } from "@/features/projects/types/project";
 
@@ -18,6 +20,7 @@ type ProjectWorkspaceTab =
   | "overview"
   | "production-log"
   | "resources"
+  | "unit-quantities"
   | "project-access";
 
 type ProjectSidebarProps = {
@@ -40,6 +43,7 @@ const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "production-log", label: "Production Log" },
   { key: "resources", label: "Resources" },
+  { key: "unit-quantities", label: "Unit Quantities" },
   { key: "project-access", label: "Project Access" },
 ];
 
@@ -54,6 +58,7 @@ export default function ProjectWorkspacePage() {
   const [project, setProject] = useState<ProjectRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<ProjectWorkspaceTab>("overview");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   useEffect(() => {
     if (!Number.isFinite(projectId)) {
@@ -130,6 +135,8 @@ export default function ProjectWorkspacePage() {
             description="This area will hold labor, equipment, materials, and any supporting project resource views."
           />
         );
+      case "unit-quantities":
+        return <UnitQuantitiesPanel />;
       case "project-access":
         return (
           <ProjectAccessPanel
@@ -157,21 +164,47 @@ export default function ProjectWorkspacePage() {
 
           <main className="space-y-6">
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
-              <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
-                Project Workspace
-              </p>
-              <h1 className="mt-3 text-3xl font-semibold">
-                {project?.project_name ?? "Project Workspace"}
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm text-[var(--muted)]">
-                Navigate project-specific work from the sidebar and use this area
-                as the main working surface for the selected project.
-              </p>
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
+                    Project Workspace
+                  </p>
+                  <h1 className="mt-3 text-3xl font-semibold">
+                    {project?.project_name ?? "Project Workspace"}
+                  </h1>
+                  <p className="mt-3 max-w-3xl text-sm text-[var(--muted)]">
+                    Navigate project-specific work from the sidebar and use this
+                    area as the main working surface for the selected project.
+                  </p>
+                </div>
+
+                {project && activeTab === "overview" ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditDialogOpen(true)}
+                    className="rounded-full border border-[var(--inverse-bg)] bg-[var(--inverse-bg)] px-5 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer"
+                  >
+                    Edit Project
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {renderMainPanel()}
           </main>
         </div>
+
+        {project ? (
+          <EditProjectDialog
+            isOpen={isEditDialogOpen}
+            project={project}
+            onClose={() => setIsEditDialogOpen(false)}
+            onProjectUpdated={(updatedProject) => {
+              setProject(updatedProject);
+              setIsEditDialogOpen(false);
+            }}
+          />
+        ) : null}
       </div>
     </PageShell>
   );
@@ -263,6 +296,32 @@ function ProjectOverviewPanel({ project }: ProjectOverviewPanelProps) {
         />
       </div>
 
+      <div className="grid gap-5 xl:grid-cols-2">
+        <InfoCard
+          label="Plot Area"
+          value={formatArea(project.plot_area)}
+        />
+        <InfoCard
+          label="Project Footprint"
+          value={formatArea(project.project_footprint)}
+        />
+        <InfoCard
+          label="Basements"
+          value={formatCount(project.basement_count)}
+        />
+        <InfoCard label="Stilt" value={formatCount(project.stilt_count)} />
+        <InfoCard label="Podium" value={formatCount(project.podium_count)} />
+        <InfoCard label="Floors" value={formatCount(project.floor_count)} />
+        <InfoCard
+          label="Foundation Type"
+          value={project.foundation_type ?? "N/A"}
+        />
+        <InfoCard
+          label="Super-structure Type"
+          value={project.super_structure_type ?? "N/A"}
+        />
+      </div>
+
       <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
         <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
           Site Address
@@ -316,4 +375,12 @@ function formatDate(dateValue: string | null) {
 function formatLocation(project: ProjectRecord) {
   const parts = [project.city, project.state, project.country].filter(Boolean);
   return parts.length > 0 ? parts.join(", ") : "N/A";
+}
+
+function formatArea(value: number | null) {
+  return value === null ? "N/A" : `${value} sq.ft`;
+}
+
+function formatCount(value: number | null) {
+  return value === null ? "N/A" : String(value);
 }
