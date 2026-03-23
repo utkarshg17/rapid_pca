@@ -3,22 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
+import { createUnitQuantityEntry } from "@/features/projects/services/create-unit-quantity-entry";
+import {
+  getUnitQuantityEntries,
+} from "@/features/projects/services/get-unit-quantity-entries";
 import {
   getUnitQuantityElements,
   type UnitQuantityElementOption,
 } from "@/features/projects/services/get-unit-quantity-elements";
-
-type UnitQuantityEntry = {
-  id: string;
-  costCode: string;
-  item: string;
-  floor: string;
-  zone: string;
-  formwork: string;
-  concrete: string;
-  reinforcement: string;
-  createdAt: string;
-};
+import type { ProjectRecord } from "@/features/projects/types/project";
+import type { UnitQuantityEntry } from "@/features/projects/types/unit-quantity";
 
 type EntryFormState = {
   selectedElementKey: string;
@@ -38,15 +33,29 @@ const initialFormState: EntryFormState = {
   reinforcement: "",
 };
 
-export function UnitQuantitiesPanel() {
+type UnitQuantitiesPanelProps = {
+  project: ProjectRecord;
+  currentUser: UserProfile | null;
+};
+
+export function UnitQuantitiesPanel({
+  project,
+  currentUser,
+}: UnitQuantitiesPanelProps) {
   const [searchValue, setSearchValue] = useState("");
   const [entries, setEntries] = useState<UnitQuantityEntry[]>([]);
   const [elementOptions, setElementOptions] = useState<
     UnitQuantityElementOption[]
   >([]);
   const [isLoadingElements, setIsLoadingElements] = useState(true);
+  const [isLoadingEntries, setIsLoadingEntries] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState<EntryFormState>(initialFormState);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [expandedEntry, setExpandedEntry] = useState<UnitQuantityEntry | null>(
+    null
+  );
 
   useEffect(() => {
     async function loadElementOptions() {
@@ -65,6 +74,23 @@ export function UnitQuantitiesPanel() {
     loadElementOptions();
   }, []);
 
+  useEffect(() => {
+    async function loadEntries() {
+      setIsLoadingEntries(true);
+      try {
+        const unitQuantityEntries = await getUnitQuantityEntries(project.id);
+        setEntries(unitQuantityEntries);
+      } catch (error) {
+        console.error("Failed to load unit quantity entries:", error);
+        setEntries([]);
+      } finally {
+        setIsLoadingEntries(false);
+      }
+    }
+
+    loadEntries();
+  }, [project.id]);
+
   const filteredEntries = useMemo(() => {
     const normalizedSearch = searchValue.trim().toLowerCase();
 
@@ -73,7 +99,7 @@ export function UnitQuantitiesPanel() {
     }
 
     return entries.filter((entry) =>
-      entry.item.toLowerCase().includes(normalizedSearch)
+      entry.element.toLowerCase().includes(normalizedSearch)
     );
   }, [entries, searchValue]);
 
@@ -83,11 +109,13 @@ export function UnitQuantitiesPanel() {
 
   function handleOpenModal() {
     setForm(initialFormState);
+    setErrorMessage("");
     setIsModalOpen(true);
   }
 
   function handleCloseModal() {
     setForm(initialFormState);
+    setErrorMessage("");
     setIsModalOpen(false);
   }
 
@@ -101,27 +129,75 @@ export function UnitQuantitiesPanel() {
     }));
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!selectedElement) {
+    if (!selectedElement || !currentUser?.id) {
+      setErrorMessage("You must be logged in to save a quantity entry.");
       return;
     }
 
-    const nextEntry: UnitQuantityEntry = {
-      id: `${Date.now()}`,
-      costCode: selectedElement.cost_code,
-      item: selectedElement.item,
-      floor: form.floor,
-      zone: form.zone,
-      formwork: form.formwork,
-      concrete: form.concrete,
-      reinforcement: form.reinforcement,
-      createdAt: new Date().toLocaleString(),
-    };
+    const createdByUserId = Number(currentUser.id);
+    const floorValue = Number.parseInt(form.floor, 10);
 
-    setEntries((prev) => [nextEntry, ...prev]);
-    handleCloseModal();
+    if (!Number.isFinite(createdByUserId)) {
+      setErrorMessage("The current user id is not in a numeric format.");
+      return;
+    }
+
+    if (!Number.isFinite(floorValue)) {
+      setErrorMessage("Floor must be entered as a whole number.");
+      return;
+    }
+
+    const createdByUserName =
+      [currentUser.first_name, currentUser.last_name].filter(Boolean).join(" ") ||
+      currentUser.email_id ||
+      "Unknown User";
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+
+    try {
+      await createUnitQuantityEntry({
+        projectId: project.id,
+        projectName: project.project_name,
+        costCode: selectedElement.cost_code,
+        item: selectedElement.item,
+        floor: floorValue,
+        zone: form.zone,
+        createdByUserId,
+        createdByUserName,
+        quantities: [
+          {
+            parameter: "Formwork",
+            quantity: Number(form.formwork),
+            unit: "sq.ft",
+          },
+          {
+            parameter: "Concrete",
+            quantity: Number(form.concrete),
+            unit: "cu.m",
+          },
+          {
+            parameter: "Reinforcement",
+            quantity: Number(form.reinforcement),
+            unit: "kg",
+          },
+        ],
+      });
+
+      const refreshedEntries = await getUnitQuantityEntries(project.id);
+      setEntries(refreshedEntries);
+      handleCloseModal();
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to save entry."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -159,7 +235,11 @@ export function UnitQuantitiesPanel() {
       </div>
 
       <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] shadow-[var(--shadow-md)]">
-        {filteredEntries.length === 0 ? (
+        {isLoadingEntries ? (
+          <div className="p-10 text-center text-sm text-[var(--muted)]">
+            Loading entries...
+          </div>
+        ) : filteredEntries.length === 0 ? (
           <div className="p-10 text-center">
             <h3 className="text-lg font-semibold">No entries yet</h3>
             <p className="mt-2 text-sm text-[var(--muted)]">
@@ -177,10 +257,9 @@ export function UnitQuantitiesPanel() {
                     "Cost Code",
                     "Floor",
                     "Zone",
-                    "Formwork",
-                    "Concrete",
-                    "Reinforcement",
                     "Created",
+                    "Created By",
+                    "Actions",
                   ].map((heading) => (
                     <th
                       key={heading}
@@ -194,8 +273,8 @@ export function UnitQuantitiesPanel() {
 
               <tbody className="divide-y divide-[var(--border)]">
                 {filteredEntries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-4 py-4 font-medium">{entry.item}</td>
+                  <tr key={entry.entryGroupId}>
+                    <td className="px-4 py-4 font-medium">{entry.element}</td>
                     <td className="px-4 py-4 text-[var(--muted)]">
                       {entry.costCode}
                     </td>
@@ -206,16 +285,43 @@ export function UnitQuantitiesPanel() {
                       {entry.zone}
                     </td>
                     <td className="px-4 py-4 text-[var(--muted)]">
-                      {entry.formwork} sq.ft
+                      {formatCreatedAt(entry.createdAt)}
                     </td>
                     <td className="px-4 py-4 text-[var(--muted)]">
-                      {entry.concrete} cu.m
+                      {entry.createdBy}
                     </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {entry.reinforcement} kg
-                    </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {entry.createdAt}
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedEntry(entry)}
+                          aria-label={`Expand ${entry.element}`}
+                          title="Expand entry"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                        >
+                          <ExpandIcon />
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label="Edit entry"
+                          title="Edit entry coming next"
+                          disabled
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--subtle)] opacity-60"
+                        >
+                          <EditIcon />
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label="Delete entry"
+                          title="Delete entry coming next"
+                          disabled
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--subtle)] opacity-60"
+                        >
+                          <DeleteIcon />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -305,13 +411,15 @@ export function UnitQuantitiesPanel() {
                     <div className="grid gap-4 md:grid-cols-2">
                       <Field label="Floor" required>
                         <input
-                          type="text"
+                          type="number"
+                          min="0"
+                          step="1"
                           value={form.floor}
                           onChange={(event) =>
                             updateField("floor", event.target.value)
                           }
                           className={inputClassName}
-                          placeholder="Enter floor"
+                          placeholder="Enter floor number"
                           required
                         />
                       </Field>
@@ -389,16 +497,102 @@ export function UnitQuantitiesPanel() {
                 </>
               ) : null}
 
+              {errorMessage ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {errorMessage}
+                </div>
+              ) : null}
+
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={!selectedElement}
+                  disabled={!selectedElement || isSubmitting}
                   className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
                 >
-                  Save Entry
+                  {isSubmitting ? "Saving Entry..." : "Save Entry"}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {expandedEntry ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+          onClick={() => setExpandedEntry(null)}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-semibold">Unit Quantity Entry</h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Review the saved quantity details for this entry.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setExpandedEntry(null)}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <InfoTile label="Element" value={expandedEntry.element} />
+              <InfoTile label="Cost Code" value={expandedEntry.costCode} />
+              <InfoTile label="Floor" value={expandedEntry.floor} />
+              <InfoTile label="Zone" value={expandedEntry.zone} />
+              <InfoTile
+                label="Created At"
+                value={formatCreatedAt(expandedEntry.createdAt)}
+              />
+              <InfoTile label="Created By" value={expandedEntry.createdBy} />
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+                  <thead className="bg-[var(--surface)]">
+                    <tr>
+                      {["Quantity Parameter", "Quantity", "Unit"].map(
+                        (heading) => (
+                          <th
+                            key={heading}
+                            className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                          >
+                            {heading}
+                          </th>
+                        )
+                      )}
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {expandedEntry.quantities.map((quantityRow) => (
+                      <tr
+                        key={`${expandedEntry.entryGroupId}-${quantityRow.parameter}`}
+                      >
+                        <td className="px-4 py-4 font-medium">
+                          {quantityRow.parameter}
+                        </td>
+                        <td className="px-4 py-4 text-[var(--muted)]">
+                          {formatQuantity(quantityRow.quantity)}
+                        </td>
+                        <td className="px-4 py-4 text-[var(--muted)]">
+                          {quantityRow.unit}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -430,3 +624,75 @@ function Field({ label, children, required = false, helper }: FieldProps) {
 
 const inputClassName =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition duration-200 placeholder:text-[var(--placeholder)] focus:border-[var(--border-strong)]";
+
+function formatCreatedAt(dateValue: string) {
+  const date = new Date(dateValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return dateValue;
+  }
+
+  return date.toLocaleString();
+}
+
+function formatQuantity(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function InfoTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] p-4">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--subtle)]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-medium text-[var(--foreground)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H5v4M15 5h4v4M19 15v4h-4M5 15v4h4" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="m4 20 4.5-1 9-9a2.12 2.12 0 1 0-3-3l-9 9L4 20Z" />
+    </svg>
+  );
+}
+
+function DeleteIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 12h10l1-12M9 7V4h6v3" />
+    </svg>
+  );
+}

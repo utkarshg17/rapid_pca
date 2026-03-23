@@ -136,7 +136,12 @@ export default function ProjectWorkspacePage() {
           />
         );
       case "unit-quantities":
-        return <UnitQuantitiesPanel />;
+        return (
+          <UnitQuantitiesPanel
+            project={project}
+            currentUser={profile}
+          />
+        );
       case "project-access":
         return (
           <ProjectAccessPanel
