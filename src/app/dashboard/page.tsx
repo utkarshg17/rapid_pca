@@ -60,13 +60,13 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
         <DashboardHeader />
 
-        <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <div className="grid gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
           <DashboardSidebar
             activeTab={activeTab}
             onTabChange={setActiveTab}
           />
 
-          <main>{renderMainPanel()}</main>
+          <main className="min-w-0">{renderMainPanel()}</main>
         </div>
       </div>
     </PageShell>
