@@ -11,6 +11,8 @@ const supportedCostCodes = new Set([
   "A1032",
   "A1012",
   "C2011",
+  "B2068",
+  "C3015",
 ]);
 
 const fallbackElements: UnitQuantityElementOption[] = [
@@ -33,6 +35,14 @@ const fallbackElements: UnitQuantityElementOption[] = [
   {
     cost_code: "C2011",
     item: "Regular Stair",
+  },
+  {
+    cost_code: "B2068",
+    item: "Exterior Paint",
+  },
+  {
+    cost_code: "C3015",
+    item: "Interior Paint",
   },
 ];
 

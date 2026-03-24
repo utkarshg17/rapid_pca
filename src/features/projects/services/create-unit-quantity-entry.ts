@@ -12,6 +12,7 @@ type CreateUnitQuantityEntryInput = {
   quantities: Array<{
     parameter: string;
     quantity: number;
+    unitCost: number;
     unit: string;
   }>;
 };
@@ -30,6 +31,7 @@ export async function createUnitQuantityEntry(
     zone: input.zone.trim(),
     quantity_parameter: quantityRow.parameter,
     quantity: quantityRow.quantity,
+    unit_cost: quantityRow.unitCost,
     unit: quantityRow.unit,
     created_by_user_id: input.createdByUserId,
     created_by_user_name: input.createdByUserName,

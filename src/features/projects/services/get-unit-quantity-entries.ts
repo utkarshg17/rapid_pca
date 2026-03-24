@@ -21,7 +21,7 @@ export async function getUnitQuantityEntries(
   const { data, error } = await supabase
     .from("unit_quantities")
     .select(
-      "id, created_at, project_id, project_name, cost_code, item, quantity_parameter, quantity, unit, floor, zone, created_by_user_id, created_by_user_name, entry_group_id"
+      "id, created_at, project_id, project_name, cost_code, item, quantity_parameter, quantity, unit_cost, unit, floor, zone, created_by_user_id, created_by_user_name, entry_group_id"
     )
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
@@ -34,6 +34,7 @@ export async function getUnitQuantityEntries(
   const groupedEntries = new Map<string, UnitQuantityEntry>();
 
   ((data ?? []) as UnitQuantityRow[]).forEach((row) => {
+    const unitCost = Number.isFinite(row.unit_cost) ? row.unit_cost : 0;
     const entryGroupId = row.entry_group_id
       ? String(row.entry_group_id)
       : buildFallbackEntryGroupId(row);
@@ -42,10 +43,13 @@ export async function getUnitQuantityEntries(
 
     if (existingEntry) {
       existingEntry.quantities.push({
+        rowId: row.id,
         parameter: row.quantity_parameter,
         quantity: row.quantity,
+        unitCost,
         unit: row.unit,
       });
+      existingEntry.totalCost += row.quantity * unitCost;
       return;
     }
 
@@ -57,10 +61,13 @@ export async function getUnitQuantityEntries(
       zone: row.zone,
       createdAt: row.created_at,
       createdBy: row.created_by_user_name,
+      totalCost: row.quantity * unitCost,
       quantities: [
         {
+          rowId: row.id,
           parameter: row.quantity_parameter,
           quantity: row.quantity,
+          unitCost,
           unit: row.unit,
         },
       ],

@@ -7,6 +7,7 @@ export type UnitQuantityRow = {
   item: string;
   quantity_parameter: string;
   quantity: number;
+  unit_cost: number;
   unit: string;
   floor: number;
   zone: string;
@@ -23,9 +24,12 @@ export type UnitQuantityEntry = {
   zone: string;
   createdAt: string;
   createdBy: string;
+  totalCost: number;
   quantities: Array<{
+    rowId: number;
     parameter: string;
     quantity: number;
+    unitCost: number;
     unit: string;
   }>;
 };

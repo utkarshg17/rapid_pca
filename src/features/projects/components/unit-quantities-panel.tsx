@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
 import { createUnitQuantityEntry } from "@/features/projects/services/create-unit-quantity-entry";
+import { deleteUnitQuantityEntry } from "@/features/projects/services/delete-unit-quantity-entry";
 import {
   getUnitQuantityEntries,
 } from "@/features/projects/services/get-unit-quantity-entries";
@@ -12,6 +13,7 @@ import {
   getUnitQuantityElements,
   type UnitQuantityElementOption,
 } from "@/features/projects/services/get-unit-quantity-elements";
+import { updateUnitQuantityEntry } from "@/features/projects/services/update-unit-quantity-entry";
 import type { ProjectRecord } from "@/features/projects/types/project";
 import type { UnitQuantityEntry } from "@/features/projects/types/unit-quantity";
 
@@ -20,8 +22,21 @@ type EntryFormState = {
   floor: string;
   zone: string;
   formwork: string;
+  formworkUnitCost: string;
   concrete: string;
+  concreteUnitCost: string;
   reinforcement: string;
+  reinforcementUnitCost: string;
+  primer: string;
+  primerUnitCost: string;
+  puttyLayer1: string;
+  puttyLayer1UnitCost: string;
+  puttyLayer2: string;
+  puttyLayer2UnitCost: string;
+  paintLayer1: string;
+  paintLayer1UnitCost: string;
+  paintLayer2: string;
+  paintLayer2UnitCost: string;
 };
 
 const initialFormState: EntryFormState = {
@@ -29,9 +44,158 @@ const initialFormState: EntryFormState = {
   floor: "",
   zone: "",
   formwork: "",
+  formworkUnitCost: "",
   concrete: "",
+  concreteUnitCost: "",
   reinforcement: "",
+  reinforcementUnitCost: "",
+  primer: "",
+  primerUnitCost: "",
+  puttyLayer1: "",
+  puttyLayer1UnitCost: "",
+  puttyLayer2: "",
+  puttyLayer2UnitCost: "",
+  paintLayer1: "",
+  paintLayer1UnitCost: "",
+  paintLayer2: "",
+  paintLayer2UnitCost: "",
 };
+
+type QuantityFieldKey =
+  | "formwork"
+  | "formworkUnitCost"
+  | "concrete"
+  | "concreteUnitCost"
+  | "reinforcement"
+  | "reinforcementUnitCost"
+  | "primer"
+  | "primerUnitCost"
+  | "puttyLayer1"
+  | "puttyLayer1UnitCost"
+  | "puttyLayer2"
+  | "puttyLayer2UnitCost"
+  | "paintLayer1"
+  | "paintLayer1UnitCost"
+  | "paintLayer2"
+  | "paintLayer2UnitCost";
+
+type UnitQuantityFormConfig = {
+  detailsDescription: string;
+  quantityDescription: string;
+  fields: Array<{
+    key: QuantityFieldKey;
+    unitCostKey: QuantityFieldKey;
+    label: string;
+    unit: string;
+  }>;
+};
+
+const structuralQuantityFields: UnitQuantityFormConfig["fields"] = [
+  {
+    key: "formwork",
+    unitCostKey: "formworkUnitCost",
+    label: "Formwork",
+    unit: "sq.ft",
+  },
+  {
+    key: "concrete",
+    unitCostKey: "concreteUnitCost",
+    label: "Concrete",
+    unit: "cu.m",
+  },
+  {
+    key: "reinforcement",
+    unitCostKey: "reinforcementUnitCost",
+    label: "Reinforcement",
+    unit: "kg",
+  },
+];
+
+const paintQuantityFields: UnitQuantityFormConfig["fields"] = [
+  {
+    key: "primer",
+    unitCostKey: "primerUnitCost",
+    label: "Primer",
+    unit: "sq.ft",
+  },
+  {
+    key: "puttyLayer1",
+    unitCostKey: "puttyLayer1UnitCost",
+    label: "Putty (Layer 1)",
+    unit: "sq.ft",
+  },
+  {
+    key: "puttyLayer2",
+    unitCostKey: "puttyLayer2UnitCost",
+    label: "Putty (Layer 2)",
+    unit: "sq.ft",
+  },
+  {
+    key: "paintLayer1",
+    unitCostKey: "paintLayer1UnitCost",
+    label: "Paint (Layer 1)",
+    unit: "sq.ft",
+  },
+  {
+    key: "paintLayer2",
+    unitCostKey: "paintLayer2UnitCost",
+    label: "Paint (Layer 2)",
+    unit: "sq.ft",
+  },
+];
+
+const unitQuantityFormConfigByCostCode: Record<string, UnitQuantityFormConfig> =
+  {
+    B1017: {
+      detailsDescription:
+        "This shared detail form applies to the currently supported structural elements.",
+      quantityDescription:
+        "Enter the tracked quantities for the selected structural element.",
+      fields: structuralQuantityFields,
+    },
+    B1012: {
+      detailsDescription:
+        "This shared detail form applies to the currently supported structural elements.",
+      quantityDescription:
+        "Enter the tracked quantities for the selected structural element.",
+      fields: structuralQuantityFields,
+    },
+    A1032: {
+      detailsDescription:
+        "This shared detail form applies to the currently supported structural elements.",
+      quantityDescription:
+        "Enter the tracked quantities for the selected structural element.",
+      fields: structuralQuantityFields,
+    },
+    A1012: {
+      detailsDescription:
+        "This shared detail form applies to the currently supported structural elements.",
+      quantityDescription:
+        "Enter the tracked quantities for the selected structural element.",
+      fields: structuralQuantityFields,
+    },
+    C2011: {
+      detailsDescription:
+        "This shared detail form applies to the currently supported structural elements.",
+      quantityDescription:
+        "Enter the tracked quantities for the selected structural element.",
+      fields: structuralQuantityFields,
+    },
+    B2068: {
+      detailsDescription:
+        "Capture the floor and zone first, then enter the paint system coverage quantities.",
+      quantityDescription:
+        "Enter the tracked paint area quantities for the selected element.",
+      fields: paintQuantityFields,
+    },
+    C3015: {
+      detailsDescription:
+        "Capture the floor and zone first, then enter the paint system coverage quantities.",
+      quantityDescription:
+        "Enter the tracked paint area quantities for the selected element.",
+      fields: paintQuantityFields,
+    },
+  };
 
 type UnitQuantitiesPanelProps = {
   project: ProjectRecord;
@@ -56,6 +220,37 @@ export function UnitQuantitiesPanel({
   const [expandedEntry, setExpandedEntry] = useState<UnitQuantityEntry | null>(
     null
   );
+  const [editingEntry, setEditingEntry] = useState<UnitQuantityEntry | null>(
+    null
+  );
+  const [deleteEntryCandidate, setDeleteEntryCandidate] =
+    useState<UnitQuantityEntry | null>(null);
+  const [editRows, setEditRows] = useState<
+    Array<{
+      rowId: number;
+      parameter: string;
+      quantity: string;
+      unitCost: number;
+      unit: string;
+    }>
+  >([]);
+  const [editErrorMessage, setEditErrorMessage] = useState("");
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [isDeletingEntry, setIsDeletingEntry] = useState(false);
+
+  const refreshEntries = useCallback(async () => {
+    setIsLoadingEntries(true);
+    try {
+      const unitQuantityEntries = await getUnitQuantityEntries(project.id);
+      setEntries(unitQuantityEntries);
+    } catch (error) {
+      console.error("Failed to load unit quantity entries:", error);
+      setEntries([]);
+    } finally {
+      setIsLoadingEntries(false);
+    }
+  }, [project.id]);
 
   useEffect(() => {
     async function loadElementOptions() {
@@ -75,21 +270,8 @@ export function UnitQuantitiesPanel({
   }, []);
 
   useEffect(() => {
-    async function loadEntries() {
-      setIsLoadingEntries(true);
-      try {
-        const unitQuantityEntries = await getUnitQuantityEntries(project.id);
-        setEntries(unitQuantityEntries);
-      } catch (error) {
-        console.error("Failed to load unit quantity entries:", error);
-        setEntries([]);
-      } finally {
-        setIsLoadingEntries(false);
-      }
-    }
-
-    loadEntries();
-  }, [project.id]);
+    refreshEntries();
+  }, [refreshEntries]);
 
   const filteredEntries = useMemo(() => {
     const normalizedSearch = searchValue.trim().toLowerCase();
@@ -106,6 +288,9 @@ export function UnitQuantitiesPanel({
   const selectedElement = elementOptions.find(
     (option) => `${option.cost_code}::${option.item}` === form.selectedElementKey
   );
+  const selectedFormConfig = selectedElement
+    ? unitQuantityFormConfigByCostCode[selectedElement.cost_code]
+    : null;
 
   function handleOpenModal() {
     setForm(initialFormState);
@@ -117,6 +302,37 @@ export function UnitQuantitiesPanel({
     setForm(initialFormState);
     setErrorMessage("");
     setIsModalOpen(false);
+  }
+
+  function handleOpenEditModal(entry: UnitQuantityEntry) {
+    setEditingEntry(entry);
+    setEditRows(
+      entry.quantities.map((quantityRow) => ({
+        rowId: quantityRow.rowId,
+        parameter: quantityRow.parameter,
+        quantity: String(quantityRow.quantity),
+        unitCost: quantityRow.unitCost,
+        unit: quantityRow.unit,
+      }))
+    );
+    setEditErrorMessage("");
+  }
+
+  function handleCloseEditModal() {
+    setEditingEntry(null);
+    setEditRows([]);
+    setEditErrorMessage("");
+  }
+
+  function handleOpenDeleteModal(entry: UnitQuantityEntry) {
+    setDeleteEntryCandidate(entry);
+    setDeleteErrorMessage("");
+  }
+
+  function handleCloseDeleteModal() {
+    setDeleteEntryCandidate(null);
+    setDeleteErrorMessage("");
+    setIsDeletingEntry(false);
   }
 
   function updateField<K extends keyof EntryFormState>(
@@ -159,6 +375,26 @@ export function UnitQuantitiesPanel({
     setErrorMessage("");
 
     try {
+      const quantities =
+        selectedFormConfig?.fields.map((field) => ({
+          parameter: field.label,
+          quantity: Number(form[field.key]),
+          unitCost: Number(form[field.unitCostKey]),
+          unit: field.unit,
+        })) ?? [];
+
+      if (
+        quantities.some(
+          (quantityRow) =>
+            !Number.isFinite(quantityRow.quantity) ||
+            !Number.isFinite(quantityRow.unitCost)
+        )
+      ) {
+        setErrorMessage("All quantity and unit cost values must be valid numbers.");
+        setIsSubmitting(false);
+        return;
+      }
+
       await createUnitQuantityEntry({
         projectId: project.id,
         projectName: project.project_name,
@@ -168,27 +404,10 @@ export function UnitQuantitiesPanel({
         zone: form.zone,
         createdByUserId,
         createdByUserName,
-        quantities: [
-          {
-            parameter: "Formwork",
-            quantity: Number(form.formwork),
-            unit: "sq.ft",
-          },
-          {
-            parameter: "Concrete",
-            quantity: Number(form.concrete),
-            unit: "cu.m",
-          },
-          {
-            parameter: "Reinforcement",
-            quantity: Number(form.reinforcement),
-            unit: "kg",
-          },
-        ],
+        quantities,
       });
 
-      const refreshedEntries = await getUnitQuantityEntries(project.id);
-      setEntries(refreshedEntries);
+      await refreshEntries();
       handleCloseModal();
     } catch (error) {
       console.error(error);
@@ -200,10 +419,83 @@ export function UnitQuantitiesPanel({
     }
   }
 
+  function updateEditRow(rowId: number, quantity: string) {
+    setEditRows((prev) =>
+      prev.map((row) => (row.rowId === rowId ? { ...row, quantity } : row))
+    );
+  }
+
+  async function handleSaveEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const parsedRows = editRows.map((row) => ({
+      rowId: row.rowId,
+      quantity: Number(row.quantity),
+    }));
+
+    if (parsedRows.some((row) => !Number.isFinite(row.quantity))) {
+      setEditErrorMessage("All quantity values must be valid numbers.");
+      return;
+    }
+
+    setIsSavingEdit(true);
+    setEditErrorMessage("");
+
+    try {
+      await updateUnitQuantityEntry(parsedRows);
+      await refreshEntries();
+      handleCloseEditModal();
+    } catch (error) {
+      console.error(error);
+      setEditErrorMessage(
+        error instanceof Error ? error.message : "Failed to update entry."
+      );
+    } finally {
+      setIsSavingEdit(false);
+    }
+  }
+
+  async function handleDeleteEntry() {
+    if (!deleteEntryCandidate) {
+      return;
+    }
+
+    setIsDeletingEntry(true);
+    setDeleteErrorMessage("");
+
+    try {
+      await deleteUnitQuantityEntry(
+        deleteEntryCandidate.quantities.map((row) => row.rowId)
+      );
+      await refreshEntries();
+
+      if (
+        expandedEntry?.entryGroupId === deleteEntryCandidate.entryGroupId
+      ) {
+        setExpandedEntry(null);
+      }
+
+      if (
+        editingEntry?.entryGroupId === deleteEntryCandidate.entryGroupId
+      ) {
+        handleCloseEditModal();
+      }
+
+      handleCloseDeleteModal();
+    } catch (error) {
+      console.error(error);
+      setDeleteErrorMessage(
+        error instanceof Error ? error.message : "Failed to delete entry."
+      );
+    } finally {
+      setIsDeletingEntry(false);
+    }
+  }
+
   return (
     <section className="space-y-6 text-[var(--foreground)]">
       <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
               Unit Quantities
@@ -215,7 +507,7 @@ export function UnitQuantitiesPanel({
             </p>
           </div>
 
-          <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:w-auto">
             <Input
               value={searchValue}
               onChange={(event) => setSearchValue(event.target.value)}
@@ -226,7 +518,7 @@ export function UnitQuantitiesPanel({
             <button
               type="button"
               onClick={handleOpenModal}
-              className="rounded-full border border-[var(--inverse-bg)] bg-[var(--inverse-bg)] px-5 py-3 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer"
+              className="shrink-0 whitespace-nowrap rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
             >
               Add New Entry
             </button>
@@ -259,6 +551,7 @@ export function UnitQuantitiesPanel({
                     "Zone",
                     "Created",
                     "Created By",
+                    "Total Cost",
                     "Actions",
                   ].map((heading) => (
                     <th
@@ -290,6 +583,9 @@ export function UnitQuantitiesPanel({
                     <td className="px-4 py-4 text-[var(--muted)]">
                       {entry.createdBy}
                     </td>
+                    <td className="px-4 py-4 text-[var(--muted)]">
+                      {formatCurrencyInr(entry.totalCost)}
+                    </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <button
@@ -304,20 +600,20 @@ export function UnitQuantitiesPanel({
 
                         <button
                           type="button"
-                          aria-label="Edit entry"
-                          title="Edit entry coming next"
-                          disabled
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--subtle)] opacity-60"
+                          onClick={() => handleOpenEditModal(entry)}
+                          aria-label={`Edit ${entry.element}`}
+                          title="Edit entry"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
                         >
                           <EditIcon />
                         </button>
 
                         <button
                           type="button"
-                          aria-label="Delete entry"
-                          title="Delete entry coming next"
-                          disabled
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--subtle)] opacity-60"
+                          onClick={() => handleOpenDeleteModal(entry)}
+                          aria-label={`Delete ${entry.element}`}
+                          title="Delete entry"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
                         >
                           <DeleteIcon />
                         </button>
@@ -403,8 +699,7 @@ export function UnitQuantitiesPanel({
                     <div>
                       <h4 className="text-lg font-semibold">Element Details</h4>
                       <p className="text-sm text-[var(--subtle)]">
-                        This shared detail form applies to the currently
-                        supported structural elements.
+                        {selectedFormConfig?.detailsDescription}
                       </p>
                     </div>
 
@@ -443,55 +738,51 @@ export function UnitQuantitiesPanel({
                     <div>
                       <h4 className="text-lg font-semibold">Quantity</h4>
                       <p className="text-sm text-[var(--subtle)]">
-                        Enter the tracked quantities for the selected element.
+                        {selectedFormConfig?.quantityDescription}
                       </p>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <Field label="Formwork" required helper="sq.ft">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.formwork}
-                          onChange={(event) =>
-                            updateField("formwork", event.target.value)
-                          }
-                          className={inputClassName}
-                          placeholder="0.00"
-                          required
-                        />
-                      </Field>
+                    <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+                          <thead className="bg-[var(--surface)]">
+                            <tr>
+                              {[
+                                "Quantity Parameter",
+                                "Quantity",
+                                "Unit",
+                                "Unit Cost",
+                                "Cost Unit",
+                              ].map(
+                                (heading) => (
+                                  <th
+                                    key={heading}
+                                    className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                                  >
+                                    {heading}
+                                  </th>
+                                )
+                              )}
+                            </tr>
+                          </thead>
 
-                      <Field label="Concrete" required helper="cu.m">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.concrete}
-                          onChange={(event) =>
-                            updateField("concrete", event.target.value)
-                          }
-                          className={inputClassName}
-                          placeholder="0.00"
-                          required
-                        />
-                      </Field>
-
-                      <Field label="Reinforcement" required helper="kg">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={form.reinforcement}
-                          onChange={(event) =>
-                            updateField("reinforcement", event.target.value)
-                          }
-                          className={inputClassName}
-                          placeholder="0.00"
-                          required
-                        />
-                      </Field>
+                          <tbody className="divide-y divide-[var(--border)]">
+                            {selectedFormConfig?.fields.map((field) => (
+                              <QuantityInputRow
+                                key={field.key}
+                                label={field.label}
+                                unit={field.unit}
+                                value={form[field.key]}
+                                unitCostValue={form[field.unitCostKey]}
+                                onChange={(value) => updateField(field.key, value)}
+                                onUnitCostChange={(value) =>
+                                  updateField(field.unitCostKey, value)
+                                }
+                              />
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </section>
                 </>
@@ -560,7 +851,14 @@ export function UnitQuantitiesPanel({
                 <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
                   <thead className="bg-[var(--surface)]">
                     <tr>
-                      {["Quantity Parameter", "Quantity", "Unit"].map(
+                      {[
+                        "Quantity Parameter",
+                        "Quantity",
+                        "Unit",
+                        "Unit Cost",
+                        "Cost Unit",
+                        "Line Total",
+                      ].map(
                         (heading) => (
                           <th
                             key={heading}
@@ -587,11 +885,226 @@ export function UnitQuantitiesPanel({
                         <td className="px-4 py-4 text-[var(--muted)]">
                           {quantityRow.unit}
                         </td>
+                        <td className="px-4 py-4 text-[var(--muted)]">
+                          {formatCurrencyInr(quantityRow.unitCost)}
+                        </td>
+                        <td className="px-4 py-4 text-[var(--muted)]">
+                          {formatCostUnit(quantityRow.unit)}
+                        </td>
+                        <td className="px-4 py-4 text-[var(--muted)]">
+                          {formatCurrencyInr(
+                            quantityRow.quantity * quantityRow.unitCost
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingEntry ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+          onClick={handleCloseEditModal}
+        >
+          <div
+            className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-semibold">Edit Unit Quantity Entry</h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Update only the quantity values for this saved entry.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCloseEditModal}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <InfoTile label="Element" value={editingEntry.element} />
+              <InfoTile label="Cost Code" value={editingEntry.costCode} />
+              <InfoTile label="Floor" value={editingEntry.floor} />
+              <InfoTile label="Zone" value={editingEntry.zone} />
+              <InfoTile
+                label="Created At"
+                value={formatCreatedAt(editingEntry.createdAt)}
+              />
+              <InfoTile label="Created By" value={editingEntry.createdBy} />
+            </div>
+
+            <form onSubmit={handleSaveEdit} className="mt-6 space-y-6">
+              <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+                    <thead className="bg-[var(--surface)]">
+                      <tr>
+                        {[
+                          "Quantity Parameter",
+                          "Quantity",
+                          "Unit",
+                          "Unit Cost",
+                          "Cost Unit",
+                          "Line Total",
+                        ].map(
+                          (heading) => (
+                            <th
+                              key={heading}
+                              className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                            >
+                              {heading}
+                            </th>
+                          )
+                        )}
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {editRows.map((row) => (
+                        <tr key={row.rowId}>
+                          <td className="px-4 py-4 font-medium">
+                            {row.parameter}
+                          </td>
+                          <td className="px-4 py-4">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.quantity}
+                              onChange={(event) =>
+                                updateEditRow(row.rowId, event.target.value)
+                              }
+                              className={inputClassName}
+                            />
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {row.unit}
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatCurrencyInr(row.unitCost)}
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatCostUnit(row.unit)}
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatCurrencyInr(
+                              Number(row.quantity || 0) * row.unitCost
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {editErrorMessage ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                  {editErrorMessage}
+                </div>
+              ) : null}
+
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSavingEdit}
+                  className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+                >
+                  {isSavingEdit ? "Saving Changes..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteEntryCandidate ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+          onClick={handleCloseDeleteModal}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-2xl font-semibold">
+                  Delete Unit Quantity Entry
+                </h3>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  This will permanently remove the saved quantity rows for this
+                  entry from the database.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCloseDeleteModal}
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <InfoTile label="Element" value={deleteEntryCandidate.element} />
+              <InfoTile
+                label="Cost Code"
+                value={deleteEntryCandidate.costCode}
+              />
+              <InfoTile label="Floor" value={deleteEntryCandidate.floor} />
+              <InfoTile label="Zone" value={deleteEntryCandidate.zone} />
+              <InfoTile
+                label="Created At"
+                value={formatCreatedAt(deleteEntryCandidate.createdAt)}
+              />
+              <InfoTile
+                label="Created By"
+                value={deleteEntryCandidate.createdBy}
+              />
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-sm text-[var(--foreground)]">
+              Deleting this entry will remove all of its saved quantity
+              parameters and any grouped quantity rows under this entry.
+            </div>
+
+            {deleteErrorMessage ? (
+              <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {deleteErrorMessage}
+              </div>
+            ) : null}
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCloseDeleteModal}
+                disabled={isDeletingEntry}
+                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDeleteEntry}
+                disabled={isDeletingEntry}
+                className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+              >
+                {isDeletingEntry ? "Deleting Entry..." : "Delete Entry"}
+              </button>
             </div>
           </div>
         </div>
@@ -639,6 +1152,18 @@ function formatQuantity(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+function formatCurrencyInr(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCostUnit(unit: string) {
+  return `INR/${unit}`;
+}
+
 function InfoTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] p-4">
@@ -649,6 +1174,58 @@ function InfoTile({ label, value }: { label: string; value: string }) {
         {value}
       </p>
     </div>
+  );
+}
+
+type QuantityInputRowProps = {
+  label: string;
+  value: string;
+  unitCostValue: string;
+  unit: string;
+  onChange: (value: string) => void;
+  onUnitCostChange: (value: string) => void;
+};
+
+function QuantityInputRow({
+  label,
+  value,
+  unitCostValue,
+  unit,
+  onChange,
+  onUnitCostChange,
+}: QuantityInputRowProps) {
+  return (
+    <tr>
+      <td className="px-4 py-4 font-medium">{label}</td>
+      <td className="px-4 py-4">
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={inputClassName}
+          placeholder="0.00"
+          required
+        />
+      </td>
+      <td className="px-4 py-4 text-[var(--muted)]">{unit}</td>
+      <td className="px-4 py-4">
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={unitCostValue}
+          onChange={(event) => onUnitCostChange(event.target.value)}
+          className={inputClassName}
+          placeholder="0.00"
+          required
+        />
+      </td>
+      <td className="px-4 py-4 text-[var(--muted)]">
+        {formatCostUnit(unit)}
+      </td>
+    </tr>
   );
 }
 
