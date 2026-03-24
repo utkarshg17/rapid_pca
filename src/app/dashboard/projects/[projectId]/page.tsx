@@ -10,6 +10,8 @@ import {
   getCurrentUserProfile,
   type UserProfile,
 } from "@/features/auth/services/get-current-user-profile";
+import { ProjectCharterPanel } from "@/features/projects/components/project-charter-panel";
+import { ProjectOverviewPanel } from "@/features/projects/components/project-overview-panel";
 import { EditProjectDialog } from "@/features/projects/components/edit-project-dialog";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
 import { UnitQuantitiesPanel } from "@/features/projects/components/unit-quantities-panel";
@@ -21,16 +23,15 @@ type ProjectWorkspaceTab =
   | "production-log"
   | "resources"
   | "unit-quantities"
+  | "labour-sheet"
+  | "site-inventory"
+  | "project-charter"
   | "project-access";
 
 type ProjectSidebarProps = {
   activeTab: ProjectWorkspaceTab;
   onTabChange: (tab: ProjectWorkspaceTab) => void;
   project: ProjectRecord | null;
-};
-
-type ProjectOverviewPanelProps = {
-  project: ProjectRecord;
 };
 
 type ProjectPlaceholderPanelProps = {
@@ -44,6 +45,9 @@ const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: "production-log", label: "Production Log" },
   { key: "resources", label: "Resources" },
   { key: "unit-quantities", label: "Unit Quantities" },
+  { key: "labour-sheet", label: "Labour Sheet" },
+  { key: "site-inventory", label: "Site Inventory" },
+  { key: "project-charter", label: "Project Charter" },
   { key: "project-access", label: "Project Access" },
 ];
 
@@ -142,6 +146,24 @@ export default function ProjectWorkspacePage() {
             currentUser={profile}
           />
         );
+      case "labour-sheet":
+        return (
+          <ProjectPlaceholderPanel
+            eyebrow="Labour Sheet"
+            title="Labour sheet is coming next"
+            description="This section is ready for daily labor tracking, crew visibility, and workforce reporting once we wire that feature in."
+          />
+        );
+      case "site-inventory":
+        return (
+          <ProjectPlaceholderPanel
+            eyebrow="Site Inventory"
+            title="Site inventory is coming next"
+            description="This section is reserved for on-site material inventory, stock movement, and inventory status tracking."
+          />
+        );
+      case "project-charter":
+        return <ProjectCharterPanel project={project} />;
       case "project-access":
         return (
           <ProjectAccessPanel
@@ -151,7 +173,7 @@ export default function ProjectWorkspacePage() {
         );
       case "overview":
       default:
-        return <ProjectOverviewPanel project={project} />;
+        return <ProjectOverviewPanel projectId={project.id} />;
     }
   }
 
@@ -160,14 +182,14 @@ export default function ProjectWorkspacePage() {
       <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
         <DashboardHeader />
 
-        <div className="mx-auto grid max-w-7xl gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <div className="grid gap-6 px-6 py-8 md:px-10 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
           <ProjectWorkspaceSidebar
             activeTab={activeTab}
             onTabChange={setActiveTab}
             project={project}
           />
 
-          <main className="space-y-6">
+          <main className="min-w-0 space-y-6">
             <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div>
@@ -183,7 +205,7 @@ export default function ProjectWorkspacePage() {
                   </p>
                 </div>
 
-                {project && activeTab === "overview" ? (
+                {project && activeTab === "project-charter" ? (
                   <button
                     type="button"
                     onClick={() => setIsEditDialogOpen(true)}
@@ -221,7 +243,7 @@ function ProjectWorkspaceSidebar({
   project,
 }: ProjectSidebarProps) {
   return (
-    <aside className="w-full border-b border-[var(--border)] pb-6 md:w-72 md:border-b-0 md:pb-0 md:pr-6">
+    <aside className="w-full border-b border-[var(--border)] pb-6 lg:sticky lg:top-8 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:border-b-0 lg:pb-0">
       <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-4 shadow-[var(--shadow-lg)]">
         <Link
           href="/dashboard"
@@ -275,70 +297,6 @@ function ProjectWorkspaceSidebar({
   );
 }
 
-function ProjectOverviewPanel({ project }: ProjectOverviewPanelProps) {
-  return (
-    <section className="space-y-6 text-[var(--foreground)]">
-      <div className="grid gap-5 xl:grid-cols-2">
-        <InfoCard label="Project Code" value={project.project_code} />
-        <InfoCard
-          label="Project Type"
-          value={project.project_type_options?.type_name ?? "N/A"}
-        />
-        <InfoCard
-          label="Expected Start Date"
-          value={formatDate(project.expected_start_date)}
-        />
-        <InfoCard label="Location" value={formatLocation(project)} />
-        <InfoCard label="Client Name" value={project.client_name ?? "N/A"} />
-        <InfoCard
-          label="Project Manager"
-          value={project.project_manager ?? "N/A"}
-        />
-        <InfoCard label="Architect" value={project.architect ?? "N/A"} />
-        <InfoCard
-          label="Site In-Charge"
-          value={project.site_incharge ?? "N/A"}
-        />
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <InfoCard
-          label="Plot Area"
-          value={formatArea(project.plot_area)}
-        />
-        <InfoCard
-          label="Project Footprint"
-          value={formatArea(project.project_footprint)}
-        />
-        <InfoCard
-          label="Basements"
-          value={formatCount(project.basement_count)}
-        />
-        <InfoCard label="Stilt" value={formatCount(project.stilt_count)} />
-        <InfoCard label="Podium" value={formatCount(project.podium_count)} />
-        <InfoCard label="Floors" value={formatCount(project.floor_count)} />
-        <InfoCard
-          label="Foundation Type"
-          value={project.foundation_type ?? "N/A"}
-        />
-        <InfoCard
-          label="Super-structure Type"
-          value={project.super_structure_type ?? "N/A"}
-        />
-      </div>
-
-      <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
-        <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
-          Site Address
-        </p>
-        <p className="mt-3 text-sm text-[var(--muted)]">
-          {project.site_address ?? "No site address has been added yet."}
-        </p>
-      </div>
-    </section>
-  );
-}
-
 function ProjectPlaceholderPanel({
   eyebrow,
   title,
@@ -353,39 +311,4 @@ function ProjectPlaceholderPanel({
       <p className="mt-4 max-w-2xl text-[var(--muted)]">{description}</p>
     </section>
   );
-}
-
-function InfoCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-5 shadow-[var(--shadow-md)]">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--subtle)]">
-        {label}
-      </p>
-      <p className="mt-2 text-base font-medium text-[var(--foreground)]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function formatDate(dateValue: string | null) {
-  if (!dateValue) return "N/A";
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "N/A";
-
-  return date.toLocaleDateString();
-}
-
-function formatLocation(project: ProjectRecord) {
-  const parts = [project.city, project.state, project.country].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : "N/A";
-}
-
-function formatArea(value: number | null) {
-  return value === null ? "N/A" : `${value} sq.ft`;
-}
-
-function formatCount(value: number | null) {
-  return value === null ? "N/A" : String(value);
 }
