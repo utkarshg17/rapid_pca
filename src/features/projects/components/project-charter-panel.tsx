@@ -2,11 +2,40 @@ import type { ProjectRecord } from "@/features/projects/types/project";
 
 type ProjectCharterPanelProps = {
   project: ProjectRecord;
+  onEditProject?: () => void;
 };
 
-export function ProjectCharterPanel({ project }: ProjectCharterPanelProps) {
+export function ProjectCharterPanel({
+  project,
+  onEditProject,
+}: ProjectCharterPanelProps) {
   return (
     <section className="space-y-6 text-[var(--foreground)]">
+      <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
+              Project Charter
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold">Project Details</h2>
+            <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
+              Review the core project profile, structural details, and site
+              information for this project.
+            </p>
+          </div>
+
+          {onEditProject ? (
+            <button
+              type="button"
+              onClick={onEditProject}
+              className="rounded-full border border-[var(--inverse-bg)] bg-[var(--inverse-bg)] px-5 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer"
+            >
+              Edit Project
+            </button>
+          ) : null}
+        </div>
+      </div>
+
       <div className="grid gap-5 xl:grid-cols-2">
         <InfoCard label="Project Code" value={project.project_code} />
         <InfoCard

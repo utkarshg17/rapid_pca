@@ -13,6 +13,8 @@ import {
 import { ProjectCharterPanel } from "@/features/projects/components/project-charter-panel";
 import { ProjectOverviewPanel } from "@/features/projects/components/project-overview-panel";
 import { EditProjectDialog } from "@/features/projects/components/edit-project-dialog";
+import { LabourSheetPanel } from "@/features/projects/components/labour-sheet-panel";
+import { MusterRollPanel } from "@/features/projects/components/muster-roll-panel";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
 import { UnitQuantitiesPanel } from "@/features/projects/components/unit-quantities-panel";
 import { getProjectById } from "@/features/projects/services/get-project-by-id";
@@ -24,6 +26,7 @@ type ProjectWorkspaceTab =
   | "resources"
   | "unit-quantities"
   | "labour-sheet"
+  | "muster-roll"
   | "site-inventory"
   | "project-charter"
   | "project-access";
@@ -46,6 +49,7 @@ const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: "resources", label: "Resources" },
   { key: "unit-quantities", label: "Unit Quantities" },
   { key: "labour-sheet", label: "Labour Sheet" },
+  { key: "muster-roll", label: "Muster Roll" },
   { key: "site-inventory", label: "Site Inventory" },
   { key: "project-charter", label: "Project Charter" },
   { key: "project-access", label: "Project Access" },
@@ -148,10 +152,16 @@ export default function ProjectWorkspacePage() {
         );
       case "labour-sheet":
         return (
-          <ProjectPlaceholderPanel
-            eyebrow="Labour Sheet"
-            title="Labour sheet is coming next"
-            description="This section is ready for daily labor tracking, crew visibility, and workforce reporting once we wire that feature in."
+          <LabourSheetPanel
+            project={project}
+            currentUser={profile}
+          />
+        );
+      case "muster-roll":
+        return (
+          <MusterRollPanel
+            project={project}
+            currentUser={profile}
           />
         );
       case "site-inventory":
@@ -163,7 +173,12 @@ export default function ProjectWorkspacePage() {
           />
         );
       case "project-charter":
-        return <ProjectCharterPanel project={project} />;
+        return (
+          <ProjectCharterPanel
+            project={project}
+            onEditProject={() => setIsEditDialogOpen(true)}
+          />
+        );
       case "project-access":
         return (
           <ProjectAccessPanel
@@ -189,36 +204,7 @@ export default function ProjectWorkspacePage() {
             project={project}
           />
 
-          <main className="min-w-0 space-y-6">
-            <div className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
-                    Project Workspace
-                  </p>
-                  <h1 className="mt-3 text-3xl font-semibold">
-                    {project?.project_name ?? "Project Workspace"}
-                  </h1>
-                  <p className="mt-3 max-w-3xl text-sm text-[var(--muted)]">
-                    Navigate project-specific work from the sidebar and use this
-                    area as the main working surface for the selected project.
-                  </p>
-                </div>
-
-                {project && activeTab === "project-charter" ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsEditDialogOpen(true)}
-                    className="rounded-full border border-[var(--inverse-bg)] bg-[var(--inverse-bg)] px-5 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer"
-                  >
-                    Edit Project
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            {renderMainPanel()}
-          </main>
+          <main className="min-w-0">{renderMainPanel()}</main>
         </div>
 
         {project ? (
