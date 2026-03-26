@@ -5,13 +5,12 @@ function normalizePettyContractorName(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-export async function createPettyContractor(
-  input: {
-    pettyContractorName: string;
-    labourRate: number;
-    masonRate: number;
-  }
-): Promise<PettyContractorRecord> {
+export async function updatePettyContractor(input: {
+  id: number;
+  pettyContractorName: string;
+  labourRate: number;
+  masonRate: number;
+}): Promise<PettyContractorRecord> {
   const normalizedName = normalizePettyContractorName(input.pettyContractorName);
 
   if (!normalizedName) {
@@ -30,6 +29,7 @@ export async function createPettyContractor(
     .from("petty_contractor_database")
     .select("id")
     .ilike("petty_contractor_name", normalizedName)
+    .neq("id", input.id)
     .limit(1);
 
   if (existingError) {
@@ -45,17 +45,18 @@ export async function createPettyContractor(
 
   const { data, error } = await supabase
     .from("petty_contractor_database")
-    .insert({
+    .update({
       petty_contractor_name: normalizedName,
       labour_rate: input.labourRate,
       mason_rate: input.masonRate,
     })
+    .eq("id", input.id)
     .select("id, created_at, petty_contractor_name, labour_rate, mason_rate")
     .single();
 
   if (error) {
-    console.error("Error creating petty contractor:", error);
-    throw new Error(error.message || "Failed to create petty contractor.");
+    console.error("Error updating petty contractor:", error);
+    throw new Error(error.message || "Failed to update petty contractor.");
   }
 
   return data as PettyContractorRecord;

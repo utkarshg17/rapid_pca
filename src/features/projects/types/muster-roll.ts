@@ -2,6 +2,8 @@ export type PettyContractorRecord = {
   id: number;
   created_at: string;
   petty_contractor_name: string;
+  labour_rate: number | null;
+  mason_rate: number | null;
 };
 
 export type MusterRollRowRecord = {

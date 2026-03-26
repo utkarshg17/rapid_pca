@@ -10,6 +10,7 @@ import { deleteMusterRollEntry } from "@/features/projects/services/delete-muste
 import { getMusterRollEntries } from "@/features/projects/services/get-muster-roll-entries";
 import { getPettyContractors } from "@/features/projects/services/get-petty-contractors";
 import { updateMusterRollEntry } from "@/features/projects/services/update-muster-roll-entry";
+import { updatePettyContractor } from "@/features/projects/services/update-petty-contractor";
 import type { ProjectRecord } from "@/features/projects/types/project";
 import type {
   MusterRollEntry,
@@ -37,6 +38,14 @@ type FieldProps = {
   required?: boolean;
 };
 
+type CrewNameSuggestion = {
+  name: string;
+  normalizedName: string;
+  useCount: number;
+  lastUsedAt: string;
+  crewTypes: string[];
+};
+
 const defaultDraftRowCount = 5;
 
 const compactInputClassName =
@@ -53,6 +62,13 @@ function createEmptyDraftRow(): MusterRollDraftRow {
     regularHours: "",
     overtimeHours: "",
     rate: "",
+  };
+}
+
+function createEmptyEditDraftRow(): MusterRollDraftRow {
+  return {
+    ...createEmptyDraftRow(),
+    id: -1 * (Date.now() * 1000 + Math.floor(Math.random() * 1000)),
   };
 }
 
@@ -73,6 +89,10 @@ function getCurrentMonthValue() {
 
 function normalizePettyContractorName(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeCrewName(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function isDraftRowEmpty(row: MusterRollDraftRow) {
@@ -153,6 +173,18 @@ export function MusterRollPanel({
   const [pettyContractorSearchValue, setPettyContractorSearchValue] =
     useState("");
   const [newPettyContractorName, setNewPettyContractorName] = useState("");
+  const [newLabourRate, setNewLabourRate] = useState("");
+  const [newMasonRate, setNewMasonRate] = useState("");
+  const [editingPettyContractor, setEditingPettyContractor] =
+    useState<PettyContractorRecord | null>(null);
+  const [editPettyContractorName, setEditPettyContractorName] = useState("");
+  const [editPettyContractorLabourRate, setEditPettyContractorLabourRate] =
+    useState("");
+  const [editPettyContractorMasonRate, setEditPettyContractorMasonRate] =
+    useState("");
+  const [editPettyContractorErrorMessage, setEditPettyContractorErrorMessage] =
+    useState("");
+  const [isSavingPettyContractor, setIsSavingPettyContractor] = useState(false);
   const [pettyContractorErrorMessage, setPettyContractorErrorMessage] =
     useState("");
   const [pettyContractorSuccessMessage, setPettyContractorSuccessMessage] =
@@ -242,6 +274,55 @@ export function MusterRollPanel({
     );
   }, [pettyContractors, pettyContractorSearchValue]);
 
+  const crewNameSuggestionsByPettyContractor = useMemo(() => {
+    const suggestionsMap = new Map<string, Map<string, CrewNameSuggestion>>();
+
+    entries.forEach((entry) => {
+      entry.rows.forEach((row) => {
+        if (!row.pettyContractorId || !row.crewName.trim()) {
+          return;
+        }
+
+        const pettyContractorKey = String(row.pettyContractorId);
+        const normalizedName = normalizeCrewName(row.crewName);
+
+        if (!normalizedName) {
+          return;
+        }
+
+        const contractorSuggestions =
+          suggestionsMap.get(pettyContractorKey) ?? new Map<string, CrewNameSuggestion>();
+        const existingSuggestion = contractorSuggestions.get(normalizedName);
+        const nextLastUsedAt =
+          compareDateValues(entry.recordDate, existingSuggestion?.lastUsedAt ?? "") >= 0
+            ? entry.recordDate
+            : existingSuggestion?.lastUsedAt ?? entry.recordDate;
+
+        contractorSuggestions.set(normalizedName, {
+          name:
+            compareDateValues(entry.recordDate, existingSuggestion?.lastUsedAt ?? "") >= 0
+              ? row.crewName.trim()
+              : existingSuggestion?.name ?? row.crewName.trim(),
+          normalizedName,
+          useCount: (existingSuggestion?.useCount ?? 0) + 1,
+          lastUsedAt: nextLastUsedAt,
+          crewTypes: Array.from(
+            new Set([...(existingSuggestion?.crewTypes ?? []), row.crewType].filter(Boolean))
+          ),
+        });
+
+        suggestionsMap.set(pettyContractorKey, contractorSuggestions);
+      });
+    });
+
+    return new Map(
+      Array.from(suggestionsMap.entries()).map(([pettyContractorKey, value]) => [
+        pettyContractorKey,
+        Array.from(value.values()),
+      ])
+    );
+  }, [entries]);
+
   const entrySummary = useMemo(() => summarizeDraftRows(draftRows), [draftRows]);
   const editSummary = useMemo(() => summarizeDraftRows(editRows), [editRows]);
 
@@ -290,6 +371,8 @@ export function MusterRollPanel({
   function handleOpenPettyContractorDialog() {
     setPettyContractorSearchValue("");
     setNewPettyContractorName("");
+    setNewLabourRate("");
+    setNewMasonRate("");
     setPettyContractorErrorMessage("");
     setPettyContractorSuccessMessage("");
     setIsPettyContractorDialogOpen(true);
@@ -298,9 +381,34 @@ export function MusterRollPanel({
   function handleClosePettyContractorDialog() {
     setPettyContractorSearchValue("");
     setNewPettyContractorName("");
+    setNewLabourRate("");
+    setNewMasonRate("");
     setPettyContractorErrorMessage("");
     setPettyContractorSuccessMessage("");
     setIsPettyContractorDialogOpen(false);
+  }
+
+  function handleOpenEditPettyContractorModal(
+    pettyContractor: PettyContractorRecord
+  ) {
+    setEditingPettyContractor(pettyContractor);
+    setEditPettyContractorName(pettyContractor.petty_contractor_name);
+    setEditPettyContractorLabourRate(
+      pettyContractor.labour_rate === null ? "" : String(pettyContractor.labour_rate)
+    );
+    setEditPettyContractorMasonRate(
+      pettyContractor.mason_rate === null ? "" : String(pettyContractor.mason_rate)
+    );
+    setEditPettyContractorErrorMessage("");
+  }
+
+  function handleCloseEditPettyContractorModal() {
+    setEditingPettyContractor(null);
+    setEditPettyContractorName("");
+    setEditPettyContractorLabourRate("");
+    setEditPettyContractorMasonRate("");
+    setEditPettyContractorErrorMessage("");
+    setIsSavingPettyContractor(false);
   }
 
   function handleOpenGenerateDialog() {
@@ -335,10 +443,25 @@ export function MusterRollPanel({
       | "rate",
     value: string
   ) {
-    updateDraftRow(rowId, (row) => ({
-      ...row,
-      [key]: value,
-    }));
+    updateDraftRow(rowId, (row) => {
+      const nextRow = {
+        ...row,
+        [key]: value,
+      };
+
+      if (key === "pettyContractorId" || key === "crewType") {
+        const suggestedRate = getSuggestedRate(
+          nextRow.pettyContractorId,
+          nextRow.crewType
+        );
+
+        if (suggestedRate !== "") {
+          nextRow.rate = suggestedRate;
+        }
+      }
+
+      return nextRow;
+    });
   }
 
   function handleAddDraftRow() {
@@ -365,10 +488,29 @@ export function MusterRollPanel({
       | "rate",
     value: string
   ) {
-    updateEditRow(rowId, (row) => ({
-      ...row,
-      [key]: value,
-    }));
+    updateEditRow(rowId, (row) => {
+      const nextRow = {
+        ...row,
+        [key]: value,
+      };
+
+      if (key === "pettyContractorId" || key === "crewType") {
+        const suggestedRate = getSuggestedRate(
+          nextRow.pettyContractorId,
+          nextRow.crewType
+        );
+
+        if (suggestedRate !== "") {
+          nextRow.rate = suggestedRate;
+        }
+      }
+
+      return nextRow;
+    });
+  }
+
+  function handleAddEditRow() {
+    setEditRows((prev) => [...prev, createEmptyEditDraftRow()]);
   }
 
   function getPettyContractorById(pettyContractorId: string) {
@@ -383,15 +525,49 @@ export function MusterRollPanel({
     );
   }
 
+  function getSuggestedRate(pettyContractorId: string, crewType: string) {
+    const pettyContractor = getPettyContractorById(pettyContractorId);
+
+    if (!pettyContractor) {
+      return "";
+    }
+
+    if (crewType === "Mason" && pettyContractor.mason_rate !== null) {
+      return String(pettyContractor.mason_rate);
+    }
+
+    if (crewType === "Labour" && pettyContractor.labour_rate !== null) {
+      return String(pettyContractor.labour_rate);
+    }
+
+    return "";
+  }
+
   async function handleCreatePettyContractor(
     event: React.FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
     const normalizedName = normalizePettyContractorName(newPettyContractorName);
+    const labourRate = Number.parseFloat(newLabourRate);
+    const masonRate = Number.parseFloat(newMasonRate);
 
     if (!normalizedName) {
       setPettyContractorErrorMessage("Enter a petty contractor name first.");
+      setPettyContractorSuccessMessage("");
+      return;
+    }
+
+    if (!Number.isFinite(labourRate) || labourRate < 0) {
+      setPettyContractorErrorMessage(
+        "Enter a valid non-negative labour rate."
+      );
+      setPettyContractorSuccessMessage("");
+      return;
+    }
+
+    if (!Number.isFinite(masonRate) || masonRate < 0) {
+      setPettyContractorErrorMessage("Enter a valid non-negative mason rate.");
       setPettyContractorSuccessMessage("");
       return;
     }
@@ -415,7 +591,11 @@ export function MusterRollPanel({
     setPettyContractorSuccessMessage("");
 
     try {
-      const createdContractor = await createPettyContractor(normalizedName);
+      const createdContractor = await createPettyContractor({
+        pettyContractorName: normalizedName,
+        labourRate,
+        masonRate,
+      });
 
       setPettyContractors((prev) =>
         [...prev, createdContractor].sort((left, right) =>
@@ -425,6 +605,8 @@ export function MusterRollPanel({
         )
       );
       setNewPettyContractorName("");
+      setNewLabourRate("");
+      setNewMasonRate("");
       setPettyContractorSearchValue(createdContractor.petty_contractor_name);
       setPettyContractorSuccessMessage(
         `${createdContractor.petty_contractor_name} is now available in Muster Roll.`
@@ -439,6 +621,74 @@ export function MusterRollPanel({
       setPettyContractorSuccessMessage("");
     } finally {
       setIsCreatingPettyContractor(false);
+    }
+  }
+
+  async function handleSavePettyContractor(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!editingPettyContractor) {
+      return;
+    }
+
+    const normalizedName = normalizePettyContractorName(editPettyContractorName);
+    const labourRate = Number.parseFloat(editPettyContractorLabourRate);
+    const masonRate = Number.parseFloat(editPettyContractorMasonRate);
+
+    if (!normalizedName) {
+      setEditPettyContractorErrorMessage(
+        "Enter a petty contractor name first."
+      );
+      return;
+    }
+
+    if (!Number.isFinite(labourRate) || labourRate < 0) {
+      setEditPettyContractorErrorMessage(
+        "Enter a valid non-negative labour rate."
+      );
+      return;
+    }
+
+    if (!Number.isFinite(masonRate) || masonRate < 0) {
+      setEditPettyContractorErrorMessage(
+        "Enter a valid non-negative mason rate."
+      );
+      return;
+    }
+
+    setIsSavingPettyContractor(true);
+    setEditPettyContractorErrorMessage("");
+
+    try {
+      const updatedContractor = await updatePettyContractor({
+        id: editingPettyContractor.id,
+        pettyContractorName: normalizedName,
+        labourRate,
+        masonRate,
+      });
+
+      setPettyContractors((prev) =>
+        prev
+          .map((contractor) =>
+            contractor.id === updatedContractor.id ? updatedContractor : contractor
+          )
+          .sort((left, right) =>
+            left.petty_contractor_name.localeCompare(right.petty_contractor_name)
+          )
+      );
+
+      handleCloseEditPettyContractorModal();
+    } catch (error) {
+      console.error(error);
+      setEditPettyContractorErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to update petty contractor."
+      );
+    } finally {
+      setIsSavingPettyContractor(false);
     }
   }
 
@@ -571,6 +821,23 @@ export function MusterRollPanel({
       return;
     }
 
+    if (!currentUser?.id) {
+      setEditErrorMessage("You must be logged in to save muster roll entries.");
+      return;
+    }
+
+    const createdByUserId = Number(currentUser.id);
+
+    if (!Number.isFinite(createdByUserId)) {
+      setEditErrorMessage("The current user id is not in a numeric format.");
+      return;
+    }
+
+    const createdByUserName =
+      [currentUser.first_name, currentUser.last_name].filter(Boolean).join(" ") ||
+      currentUser.email_id ||
+      "Unknown User";
+
     if (!editRecordDate) {
       setEditErrorMessage("Select a record date for this muster roll entry.");
       return;
@@ -620,8 +887,12 @@ export function MusterRollPanel({
     setEditErrorMessage("");
 
     try {
-      await updateMusterRollEntry(
-        editRows.map((row) => {
+      await updateMusterRollEntry({
+        projectId: project.id,
+        entryGroupId: editingEntry.entryGroupId,
+        createdByUserId,
+        createdByUserName,
+        rows: editRows.map((row) => {
           const pettyContractor = getPettyContractorById(row.pettyContractorId);
 
           if (!pettyContractor) {
@@ -639,8 +910,8 @@ export function MusterRollPanel({
             overtimeHours: Number.parseFloat(row.overtimeHours),
             rate: Number.parseFloat(row.rate),
           };
-        })
-      );
+        }),
+      });
 
       await refreshEntries();
 
@@ -782,6 +1053,7 @@ export function MusterRollPanel({
       <MusterRollEntryModal
         isOpen={isEntryModalOpen}
         pettyContractors={pettyContractors}
+        crewNameSuggestionsByPettyContractor={crewNameSuggestionsByPettyContractor}
         isLoadingPettyContractors={isLoadingPettyContractors}
         entryDate={entryDate}
         draftRows={draftRows}
@@ -802,12 +1074,17 @@ export function MusterRollPanel({
         filteredPettyContractors={filteredPettyContractors}
         pettyContractorSearchValue={pettyContractorSearchValue}
         newPettyContractorName={newPettyContractorName}
+        newLabourRate={newLabourRate}
+        newMasonRate={newMasonRate}
         pettyContractorErrorMessage={pettyContractorErrorMessage}
         pettyContractorSuccessMessage={pettyContractorSuccessMessage}
         isCreatingPettyContractor={isCreatingPettyContractor}
         onClose={handleClosePettyContractorDialog}
         onSearchChange={setPettyContractorSearchValue}
         onNewNameChange={setNewPettyContractorName}
+        onNewLabourRateChange={setNewLabourRate}
+        onNewMasonRateChange={setNewMasonRate}
+        onEditPettyContractor={handleOpenEditPettyContractorModal}
         onSubmit={handleCreatePettyContractor}
       />
 
@@ -831,6 +1108,7 @@ export function MusterRollPanel({
       <EditMusterRollEntryModal
         isOpen={Boolean(editingEntry)}
         pettyContractors={pettyContractors}
+        crewNameSuggestionsByPettyContractor={crewNameSuggestionsByPettyContractor}
         isLoadingPettyContractors={isLoadingPettyContractors}
         recordDate={editRecordDate}
         rows={editRows}
@@ -840,6 +1118,7 @@ export function MusterRollPanel({
         onClose={handleCloseEditModal}
         onSubmit={handleSaveEdit}
         onRecordDateChange={setEditRecordDate}
+        onAddRow={handleAddEditRow}
         onFieldChange={handleEditFieldChange}
       />
 
@@ -849,6 +1128,20 @@ export function MusterRollPanel({
         isDeleting={isDeletingEntry}
         onClose={handleCloseDeleteModal}
         onDelete={handleDeleteEntry}
+      />
+
+      <EditPettyContractorModal
+        pettyContractor={editingPettyContractor}
+        pettyContractorName={editPettyContractorName}
+        labourRate={editPettyContractorLabourRate}
+        masonRate={editPettyContractorMasonRate}
+        errorMessage={editPettyContractorErrorMessage}
+        isSaving={isSavingPettyContractor}
+        onClose={handleCloseEditPettyContractorModal}
+        onSubmit={handleSavePettyContractor}
+        onNameChange={setEditPettyContractorName}
+        onLabourRateChange={setEditPettyContractorLabourRate}
+        onMasonRateChange={setEditPettyContractorMasonRate}
       />
     </>
   );
@@ -990,6 +1283,7 @@ function MusterRollEntriesTable({
 type MusterRollEntryModalProps = {
   isOpen: boolean;
   pettyContractors: PettyContractorRecord[];
+  crewNameSuggestionsByPettyContractor: Map<string, CrewNameSuggestion[]>;
   isLoadingPettyContractors: boolean;
   entryDate: string;
   draftRows: MusterRollDraftRow[];
@@ -1021,6 +1315,7 @@ type MusterRollEntryModalProps = {
 function MusterRollEntryModal({
   isOpen,
   pettyContractors,
+  crewNameSuggestionsByPettyContractor,
   isLoadingPettyContractors,
   entryDate,
   draftRows,
@@ -1081,8 +1376,9 @@ function MusterRollEntryModal({
               <div>
                 <h4 className="text-lg font-semibold">Crew Rows</h4>
                 <p className="text-sm text-[var(--muted)]">
-                  Capture one row per crew or labour grouping for this petty
-                  contractor.
+                  Choose the petty contractor and crew type first. The 12-hour
+                  rate will auto-fill from the saved contractor rates, and you
+                  can still override it when needed.
                 </p>
               </div>
 
@@ -1163,17 +1459,17 @@ function MusterRollEntryModal({
                           </select>
                         </td>
                         <td className="border border-[var(--border)] px-2 py-1 align-top">
-                          <input
-                            type="text"
+                          <CrewNameAutocompleteInput
                             value={row.crewName}
-                            onChange={(event) =>
-                              onDraftFieldChange(
-                                row.id,
-                                "crewName",
-                                event.target.value
-                              )
+                            onChange={(value) =>
+                              onDraftFieldChange(row.id, "crewName", value)
                             }
-                            className={compactInputClassName}
+                            crewType={row.crewType}
+                            suggestions={
+                              crewNameSuggestionsByPettyContractor.get(
+                                row.pettyContractorId
+                              ) ?? []
+                            }
                             placeholder="Crew / team name"
                           />
                         </td>
@@ -1301,6 +1597,7 @@ function MusterRollEntryModal({
 type EditMusterRollEntryModalProps = {
   isOpen: boolean;
   pettyContractors: PettyContractorRecord[];
+  crewNameSuggestionsByPettyContractor: Map<string, CrewNameSuggestion[]>;
   isLoadingPettyContractors: boolean;
   recordDate: string;
   rows: MusterRollDraftRow[];
@@ -1314,6 +1611,7 @@ type EditMusterRollEntryModalProps = {
   onClose: () => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onRecordDateChange: (value: string) => void;
+  onAddRow: () => void;
   onFieldChange: (
     rowId: number,
     key:
@@ -1330,6 +1628,7 @@ type EditMusterRollEntryModalProps = {
 function EditMusterRollEntryModal({
   isOpen,
   pettyContractors,
+  crewNameSuggestionsByPettyContractor,
   isLoadingPettyContractors,
   recordDate,
   rows,
@@ -1339,6 +1638,7 @@ function EditMusterRollEntryModal({
   onClose,
   onSubmit,
   onRecordDateChange,
+  onAddRow,
   onFieldChange,
 }: EditMusterRollEntryModalProps) {
   if (!isOpen) {
@@ -1384,11 +1684,21 @@ function EditMusterRollEntryModal({
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
-            <div className="border-b border-[var(--border)] px-4 py-4">
-              <h4 className="text-lg font-semibold">Crew Rows</h4>
-              <p className="text-sm text-[var(--muted)]">
-                Edit the saved petty contractor, crew, hours, and rate details.
-              </p>
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4">
+              <div>
+                <h4 className="text-lg font-semibold">Crew Rows</h4>
+                <p className="text-sm text-[var(--muted)]">
+                  Edit the saved rows or add new ones for any missed entries.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onAddRow}
+                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+              >
+                Add Row
+              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -1459,17 +1769,18 @@ function EditMusterRollEntryModal({
                           </select>
                         </td>
                         <td className="border border-[var(--border)] px-2 py-1 align-top">
-                          <input
-                            type="text"
+                          <CrewNameAutocompleteInput
                             value={row.crewName}
-                            onChange={(event) =>
-                              onFieldChange(
-                                row.id,
-                                "crewName",
-                                event.target.value
-                              )
+                            onChange={(value) =>
+                              onFieldChange(row.id, "crewName", value)
                             }
-                            className={compactInputClassName}
+                            crewType={row.crewType}
+                            suggestions={
+                              crewNameSuggestionsByPettyContractor.get(
+                                row.pettyContractorId
+                              ) ?? []
+                            }
+                            placeholder="Crew / team name"
                           />
                         </td>
                         <td className="border border-[var(--border)] px-2 py-1 align-top">
@@ -1663,18 +1974,173 @@ function DeleteMusterRollEntryDialog({
   );
 }
 
+type CrewNameAutocompleteInputProps = {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: CrewNameSuggestion[];
+  crewType: string;
+  placeholder?: string;
+};
+
+function CrewNameAutocompleteInput({
+  value,
+  onChange,
+  suggestions,
+  crewType,
+  placeholder,
+}: CrewNameAutocompleteInputProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  const visibleSuggestions = useMemo(() => {
+    const normalizedValue = normalizeCrewName(value);
+
+    return suggestions
+      .filter((suggestion) => {
+        if (!normalizedValue) {
+          return true;
+        }
+
+        return suggestion.normalizedName.includes(normalizedValue);
+      })
+      .sort((left, right) => {
+        const normalizedValuePresent = Boolean(normalizedValue);
+        const leftStartsWith = normalizedValuePresent
+          ? left.normalizedName.startsWith(normalizedValue)
+          : false;
+        const rightStartsWith = normalizedValuePresent
+          ? right.normalizedName.startsWith(normalizedValue)
+          : false;
+        const leftCrewTypeMatch = crewType
+          ? left.crewTypes.includes(crewType)
+          : false;
+        const rightCrewTypeMatch = crewType
+          ? right.crewTypes.includes(crewType)
+          : false;
+
+        return (
+          Number(rightStartsWith) - Number(leftStartsWith) ||
+          Number(rightCrewTypeMatch) - Number(leftCrewTypeMatch) ||
+          compareDateValues(right.lastUsedAt, left.lastUsedAt) ||
+          right.useCount - left.useCount ||
+          left.name.localeCompare(right.name)
+        );
+      })
+      .filter(
+        (suggestion) => suggestion.normalizedName !== normalizedValue || !normalizedValue
+      )
+      .slice(0, 6);
+  }, [crewType, suggestions, value]);
+  const activeHighlightedIndex =
+    visibleSuggestions.length === 0
+      ? 0
+      : Math.min(highlightedIndex, visibleSuggestions.length - 1);
+
+  function handleSelectSuggestion(name: string) {
+    onChange(name);
+    setIsOpen(false);
+    setHighlightedIndex(0);
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onFocus={() => {
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onBlur={() => {
+          window.setTimeout(() => setIsOpen(false), 120);
+        }}
+        onKeyDown={(event) => {
+          if (visibleSuggestions.length === 0) {
+            return;
+          }
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((prev) =>
+              Math.min(prev + 1, visibleSuggestions.length - 1)
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((prev) => Math.max(prev - 1, 0));
+            return;
+          }
+
+          if (event.key === "Tab" || event.key === "Enter") {
+            if (isOpen) {
+              event.preventDefault();
+              handleSelectSuggestion(
+                visibleSuggestions[activeHighlightedIndex]?.name ??
+                  visibleSuggestions[0].name
+              );
+            }
+          }
+        }}
+        className={compactInputClassName}
+        placeholder={placeholder}
+      />
+
+      {isOpen && visibleSuggestions.length > 0 ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-[var(--shadow-lg)]">
+          <ul className="divide-y divide-[var(--border)]">
+            {visibleSuggestions.map((suggestion, index) => (
+              <li key={`${suggestion.normalizedName}-${suggestion.lastUsedAt}`}>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleSelectSuggestion(suggestion.name)}
+                  className={[
+                    "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition duration-150",
+                    activeHighlightedIndex === index
+                      ? "bg-[var(--surface)] text-[var(--foreground)]"
+                      : "bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--surface)]",
+                  ].join(" ")}
+                >
+                  <span className="font-medium">{suggestion.name}</span>
+                  <span className="text-[10px] text-[var(--subtle)]">
+                    {formatDate(suggestion.lastUsedAt)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type PettyContractorDialogProps = {
   isOpen: boolean;
   isLoadingPettyContractors: boolean;
   filteredPettyContractors: PettyContractorRecord[];
   pettyContractorSearchValue: string;
   newPettyContractorName: string;
+  newLabourRate: string;
+  newMasonRate: string;
   pettyContractorErrorMessage: string;
   pettyContractorSuccessMessage: string;
   isCreatingPettyContractor: boolean;
   onClose: () => void;
   onSearchChange: (value: string) => void;
   onNewNameChange: (value: string) => void;
+  onNewLabourRateChange: (value: string) => void;
+  onNewMasonRateChange: (value: string) => void;
+  onEditPettyContractor: (pettyContractor: PettyContractorRecord) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 };
 
@@ -1684,12 +2150,17 @@ function PettyContractorDialog({
   filteredPettyContractors,
   pettyContractorSearchValue,
   newPettyContractorName,
+  newLabourRate,
+  newMasonRate,
   pettyContractorErrorMessage,
   pettyContractorSuccessMessage,
   isCreatingPettyContractor,
   onClose,
   onSearchChange,
   onNewNameChange,
+  onNewLabourRateChange,
+  onNewMasonRateChange,
+  onEditPettyContractor,
   onSubmit,
 }: PettyContractorDialogProps) {
   if (!isOpen) {
@@ -1753,20 +2224,54 @@ function PettyContractorDialog({
                 </div>
               ) : (
                 <div className="max-h-[360px] overflow-y-auto">
-                  <ul className="divide-y divide-[var(--border)]">
-                    {filteredPettyContractors.map((contractor) => (
-                      <li key={contractor.id} className="px-4 py-3">
-                        <div>
-                          <p className="font-medium">
+                  <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+                    <thead className="bg-[var(--surface)]">
+                      <tr>
+                        {[
+                          "Petty Contractor",
+                          "Mason Rate",
+                          "Labour Rate",
+                          "Added",
+                          "Action",
+                        ].map((heading) => (
+                          <th
+                            key={heading}
+                            className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                          >
+                            {heading}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {filteredPettyContractors.map((contractor) => (
+                        <tr key={contractor.id}>
+                          <td className="px-4 py-4 font-medium">
                             {contractor.petty_contractor_name}
-                          </p>
-                          <p className="text-xs text-[var(--subtle)]">
-                            Added {formatCreatedAt(contractor.created_at)}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatContractorRate(contractor.mason_rate)}
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatContractorRate(contractor.labour_rate)}
+                          </td>
+                          <td className="px-4 py-4 text-[var(--muted)]">
+                            {formatCreatedAt(contractor.created_at)}
+                          </td>
+                          <td className="px-4 py-4">
+                            <button
+                              type="button"
+                              onClick={() => onEditPettyContractor(contractor)}
+                              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
@@ -1784,6 +2289,28 @@ function PettyContractorDialog({
                   value={newPettyContractorName}
                   onChange={(event) => onNewNameChange(event.target.value)}
                   placeholder="Enter petty contractor name"
+                />
+              </Field>
+
+              <Field label="Mason Rate" required>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newMasonRate}
+                  onChange={(event) => onNewMasonRateChange(event.target.value)}
+                  placeholder="Enter mason rate"
+                />
+              </Field>
+
+              <Field label="Labour Rate" required>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={newLabourRate}
+                  onChange={(event) => onNewLabourRateChange(event.target.value)}
+                  placeholder="Enter labour rate"
                 />
               </Field>
 
@@ -1811,6 +2338,115 @@ function PettyContractorDialog({
             </form>
           </section>
         </div>
+      </div>
+    </div>
+  );
+}
+
+type EditPettyContractorModalProps = {
+  pettyContractor: PettyContractorRecord | null;
+  pettyContractorName: string;
+  labourRate: string;
+  masonRate: string;
+  errorMessage: string;
+  isSaving: boolean;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onNameChange: (value: string) => void;
+  onLabourRateChange: (value: string) => void;
+  onMasonRateChange: (value: string) => void;
+};
+
+function EditPettyContractorModal({
+  pettyContractor,
+  pettyContractorName,
+  labourRate,
+  masonRate,
+  errorMessage,
+  isSaving,
+  onClose,
+  onSubmit,
+  onNameChange,
+  onLabourRateChange,
+  onMasonRateChange,
+}: EditPettyContractorModalProps) {
+  if (!pettyContractor) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold">Edit Petty Contractor</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Update the contractor name, mason rate, and labour rate.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="space-y-4">
+          <Field label="Petty Contractor Name" required>
+            <Input
+              value={pettyContractorName}
+              onChange={(event) => onNameChange(event.target.value)}
+              placeholder="Enter petty contractor name"
+            />
+          </Field>
+
+          <Field label="Mason Rate" required>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={masonRate}
+              onChange={(event) => onMasonRateChange(event.target.value)}
+              placeholder="Enter mason rate"
+            />
+          </Field>
+
+          <Field label="Labour Rate" required>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={labourRate}
+              onChange={(event) => onLabourRateChange(event.target.value)}
+              placeholder="Enter labour rate"
+            />
+          </Field>
+
+          {errorMessage ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+            >
+              {isSaving ? "Saving Changes..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -2078,6 +2714,16 @@ function parseDateValue(dateValue: string) {
   return new Date(dateValue);
 }
 
+function compareDateValues(leftDateValue: string, rightDateValue: string) {
+  const leftDate = parseDateValue(leftDateValue);
+  const rightDate = parseDateValue(rightDateValue);
+
+  const leftTime = Number.isNaN(leftDate.getTime()) ? 0 : leftDate.getTime();
+  const rightTime = Number.isNaN(rightDate.getTime()) ? 0 : rightDate.getTime();
+
+  return leftTime - rightTime;
+}
+
 function formatMonthValue(value: string) {
   const [year, month] = value.split("-");
   const parsedDate = new Date(Number(year), Number(month) - 1, 1);
@@ -2102,6 +2748,14 @@ function formatCurrencyInr(value: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatContractorRate(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+
+  return formatCurrencyInr(value);
 }
 
 function InfoTile({ label, value }: { label: string; value: string }) {

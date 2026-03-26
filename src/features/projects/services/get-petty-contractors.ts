@@ -4,7 +4,7 @@ import type { PettyContractorRecord } from "@/features/projects/types/muster-rol
 export async function getPettyContractors(): Promise<PettyContractorRecord[]> {
   const { data, error } = await supabase
     .from("petty_contractor_database")
-    .select("id, created_at, petty_contractor_name")
+    .select("id, created_at, petty_contractor_name, labour_rate, mason_rate")
     .order("petty_contractor_name", { ascending: true });
 
   if (error) {
