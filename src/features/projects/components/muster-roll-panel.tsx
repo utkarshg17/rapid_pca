@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
@@ -201,7 +201,6 @@ export function MusterRollPanel({
   const [reportMonthValue, setReportMonthValue] = useState(
     getCurrentMonthValue()
   );
-  const [generateNoticeMessage, setGenerateNoticeMessage] = useState("");
 
   const refreshEntries = useCallback(async () => {
     setIsLoadingEntries(true);
@@ -413,13 +412,11 @@ export function MusterRollPanel({
 
   function handleOpenGenerateDialog() {
     setReportMonthValue(getCurrentMonthValue());
-    setGenerateNoticeMessage("");
     setIsGenerateDialogOpen(true);
   }
 
   function handleCloseGenerateDialog() {
     setReportMonthValue(getCurrentMonthValue());
-    setGenerateNoticeMessage("");
     setIsGenerateDialogOpen(false);
   }
 
@@ -971,15 +968,11 @@ export function MusterRollPanel({
     event.preventDefault();
 
     if (!reportMonthValue) {
-      setGenerateNoticeMessage("Choose a report month first.");
       return;
     }
 
-    setGenerateNoticeMessage(
-      `The report generator UI is in place for ${formatMonthValue(
-        reportMonthValue
-      )}. Next we can wire the actual monthly output from muster_roll entries.`
-    );
+    const reportUrl = `/dashboard/projects/${project.id}/muster-roll-report?month=${reportMonthValue}`;
+    window.location.href = reportUrl;
   }
 
   return (
@@ -1094,10 +1087,11 @@ export function MusterRollPanel({
         entryCount={entries.length}
         pettyContractorCount={pettyContractors.length}
         reportMonthValue={reportMonthValue}
-        generateNoticeMessage={generateNoticeMessage}
         onClose={handleCloseGenerateDialog}
         onSubmit={handleGenerateMusterRoll}
-        onReportMonthChange={setReportMonthValue}
+        onReportMonthChange={(value) => {
+          setReportMonthValue(value);
+        }}
       />
 
       <ExpandedMusterRollEntryDialog
@@ -2458,7 +2452,6 @@ type GenerateMusterRollDialogProps = {
   entryCount: number;
   pettyContractorCount: number;
   reportMonthValue: string;
-  generateNoticeMessage: string;
   onClose: () => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onReportMonthChange: (value: string) => void;
@@ -2470,7 +2463,6 @@ function GenerateMusterRollDialog({
   entryCount,
   pettyContractorCount,
   reportMonthValue,
-  generateNoticeMessage,
   onClose,
   onSubmit,
   onReportMonthChange,
@@ -2523,12 +2515,6 @@ function GenerateMusterRollDialog({
               onChange={(event) => onReportMonthChange(event.target.value)}
             />
           </Field>
-
-          {generateNoticeMessage ? (
-            <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
-              {generateNoticeMessage}
-            </div>
-          ) : null}
 
           <div className="flex justify-end">
             <button
@@ -2724,20 +2710,6 @@ function compareDateValues(leftDateValue: string, rightDateValue: string) {
   return leftTime - rightTime;
 }
 
-function formatMonthValue(value: string) {
-  const [year, month] = value.split("-");
-  const parsedDate = new Date(Number(year), Number(month) - 1, 1);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return value;
-  }
-
-  return parsedDate.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-}
-
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
@@ -2827,3 +2799,4 @@ function DeleteIcon() {
     </svg>
   );
 }
+
