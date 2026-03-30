@@ -31,6 +31,8 @@ export async function createMusterRollEntry(
     regular_hours: row.regularHours,
     overtime_hours: row.overtimeHours,
     rate: row.rate,
+    advance_payment: null,
+    advance_payment_description: null,
     entry_group_id: entryGroupId,
     created_by_user_id: input.createdByUserId,
     created_by_user_name: input.createdByUserName,

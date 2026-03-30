@@ -11,7 +11,7 @@ export async function getMusterRollEntries(
   const { data, error } = await supabase
     .from("muster_roll")
     .select(
-      "id, created_at, record_date, project_id, petty_contractor_id, petty_contractor_name, crew_name, crew_type, regular_hours, overtime_hours, rate, entry_group_id, created_by_user_name, created_by_user_id"
+      "id, created_at, record_date, project_id, petty_contractor_id, petty_contractor_name, crew_name, crew_type, regular_hours, overtime_hours, rate, advance_payment, advance_payment_description, entry_group_id, created_by_user_name, created_by_user_id"
     )
     .eq("project_id", projectId)
     .order("record_date", { ascending: false })
@@ -31,7 +31,11 @@ export async function getMusterRollEntries(
     const regularHours = Number(row.regular_hours ?? 0);
     const overtimeHours = Number(row.overtime_hours ?? 0);
     const rate = Number(row.rate ?? 0);
-    const lineTotal = ((regularHours + overtimeHours) * rate) / 12;
+    const advancePayment = Number(row.advance_payment ?? 0);
+    const isAdvancePayment = advancePayment > 0;
+    const lineTotal = isAdvancePayment
+      ? -advancePayment
+      : ((regularHours + overtimeHours) * rate) / 12;
 
     const nextRow: MusterRollEntryRow = {
       rowId: row.id,
@@ -43,6 +47,8 @@ export async function getMusterRollEntries(
       overtimeHours,
       rate,
       lineTotal,
+      advancePayment,
+      advancePaymentDescription: row.advance_payment_description ?? "",
     };
 
     const existingEntry = groupedEntries.get(entryGroupId);
@@ -52,6 +58,11 @@ export async function getMusterRollEntries(
       existingEntry.totalRegularHours += regularHours;
       existingEntry.totalOvertimeHours += overtimeHours;
       existingEntry.totalAmount += lineTotal;
+      existingEntry.advancePaymentAmount += advancePayment;
+      if (isAdvancePayment && !existingEntry.advancePaymentDescription) {
+        existingEntry.advancePaymentDescription =
+          row.advance_payment_description ?? "";
+      }
       existingEntry.pettyContractorSummary = buildPettyContractorSummary(
         existingEntry.rows.map((entryRow) => entryRow.pettyContractorName)
       );
@@ -62,12 +73,15 @@ export async function getMusterRollEntries(
       id: row.id,
       createdAt: row.created_at,
       recordDate: row.record_date,
+      entryType: isAdvancePayment ? "advance-payment" : "hours",
       pettyContractorSummary: row.petty_contractor_name,
       createdBy: row.created_by_user_name,
       entryGroupId,
       totalRegularHours: regularHours,
       totalOvertimeHours: overtimeHours,
       totalAmount: lineTotal,
+      advancePaymentAmount: advancePayment,
+      advancePaymentDescription: row.advance_payment_description ?? "",
       rows: [nextRow],
     });
   });

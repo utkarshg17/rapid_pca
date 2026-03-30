@@ -3,12 +3,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import { createAdvancePayment } from "@/features/projects/services/create-advance-payment";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
 import { createMusterRollEntry } from "@/features/projects/services/create-muster-roll-entry";
 import { createPettyContractor } from "@/features/projects/services/create-petty-contractor";
 import { deleteMusterRollEntry } from "@/features/projects/services/delete-muster-roll-entry";
 import { getMusterRollEntries } from "@/features/projects/services/get-muster-roll-entries";
 import { getPettyContractors } from "@/features/projects/services/get-petty-contractors";
+import { updateAdvancePayment } from "@/features/projects/services/update-advance-payment";
 import { updateMusterRollEntry } from "@/features/projects/services/update-muster-roll-entry";
 import { updatePettyContractor } from "@/features/projects/services/update-petty-contractor";
 import type { ProjectRecord } from "@/features/projects/types/project";
@@ -158,6 +160,8 @@ export function MusterRollPanel({
   const [isPettyContractorDialogOpen, setIsPettyContractorDialogOpen] =
     useState(false);
   const [isGenerateDialogOpen, setIsGenerateDialogOpen] = useState(false);
+  const [isAdvancePaymentModalOpen, setIsAdvancePaymentModalOpen] =
+    useState(false);
   const [entryDate, setEntryDate] = useState(getTodayDateValue());
   const [draftRows, setDraftRows] = useState<MusterRollDraftRow[]>(
     createDefaultDraftRows()
@@ -170,6 +174,31 @@ export function MusterRollPanel({
   const [editRows, setEditRows] = useState<MusterRollDraftRow[]>([]);
   const [editErrorMessage, setEditErrorMessage] = useState("");
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [advancePaymentRecordDate, setAdvancePaymentRecordDate] = useState(
+    getTodayDateValue()
+  );
+  const [advancePaymentPettyContractorId, setAdvancePaymentPettyContractorId] =
+    useState("");
+  const [advancePaymentAmount, setAdvancePaymentAmount] = useState("");
+  const [advancePaymentDescription, setAdvancePaymentDescription] =
+    useState("");
+  const [advancePaymentErrorMessage, setAdvancePaymentErrorMessage] =
+    useState("");
+  const [isSavingAdvancePayment, setIsSavingAdvancePayment] = useState(false);
+  const [editingAdvancePayment, setEditingAdvancePayment] =
+    useState<MusterRollEntry | null>(null);
+  const [editAdvancePaymentRecordDate, setEditAdvancePaymentRecordDate] =
+    useState(getTodayDateValue());
+  const [editAdvancePaymentPettyContractorId, setEditAdvancePaymentPettyContractorId] =
+    useState("");
+  const [editAdvancePaymentAmount, setEditAdvancePaymentAmount] =
+    useState("");
+  const [editAdvancePaymentDescription, setEditAdvancePaymentDescription] =
+    useState("");
+  const [editAdvancePaymentErrorMessage, setEditAdvancePaymentErrorMessage] =
+    useState("");
+  const [isSavingAdvancePaymentEdit, setIsSavingAdvancePaymentEdit] =
+    useState(false);
   const [pettyContractorSearchValue, setPettyContractorSearchValue] =
     useState("");
   const [newPettyContractorName, setNewPettyContractorName] = useState("");
@@ -341,7 +370,42 @@ export function MusterRollPanel({
     setIsEntryModalOpen(false);
   }
 
+  function handleOpenAdvancePaymentModal() {
+    setAdvancePaymentRecordDate(getTodayDateValue());
+    setAdvancePaymentPettyContractorId("");
+    setAdvancePaymentAmount("");
+    setAdvancePaymentDescription("");
+    setAdvancePaymentErrorMessage("");
+    setIsAdvancePaymentModalOpen(true);
+  }
+
+  function handleCloseAdvancePaymentModal() {
+    setAdvancePaymentRecordDate(getTodayDateValue());
+    setAdvancePaymentPettyContractorId("");
+    setAdvancePaymentAmount("");
+    setAdvancePaymentDescription("");
+    setAdvancePaymentErrorMessage("");
+    setIsSavingAdvancePayment(false);
+    setIsAdvancePaymentModalOpen(false);
+  }
+
   function handleOpenEditModal(entry: MusterRollEntry) {
+    if (entry.entryType === "advance-payment") {
+      setEditingAdvancePayment(entry);
+      setEditAdvancePaymentRecordDate(entry.recordDate);
+      setEditAdvancePaymentPettyContractorId(
+        entry.rows[0]?.pettyContractorId
+          ? String(entry.rows[0].pettyContractorId)
+          : ""
+      );
+      setEditAdvancePaymentAmount(
+        entry.advancePaymentAmount > 0 ? String(entry.advancePaymentAmount) : ""
+      );
+      setEditAdvancePaymentDescription(entry.advancePaymentDescription);
+      setEditAdvancePaymentErrorMessage("");
+      return;
+    }
+
     setEditingEntry(entry);
     setEditRecordDate(entry.recordDate);
     setEditRows(createDraftRowsFromEntry(entry));
@@ -354,6 +418,16 @@ export function MusterRollPanel({
     setEditRows([]);
     setEditErrorMessage("");
     setIsSavingEdit(false);
+  }
+
+  function handleCloseEditAdvancePaymentModal() {
+    setEditingAdvancePayment(null);
+    setEditAdvancePaymentRecordDate(getTodayDateValue());
+    setEditAdvancePaymentPettyContractorId("");
+    setEditAdvancePaymentAmount("");
+    setEditAdvancePaymentDescription("");
+    setEditAdvancePaymentErrorMessage("");
+    setIsSavingAdvancePaymentEdit(false);
   }
 
   function handleOpenDeleteModal(entry: MusterRollEntry) {
@@ -538,6 +612,85 @@ export function MusterRollPanel({
     }
 
     return "";
+  }
+
+  async function handleAdvancePaymentSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!advancePaymentRecordDate) {
+      setAdvancePaymentErrorMessage("Select a record date first.");
+      return;
+    }
+
+    if (!currentUser?.id) {
+      setAdvancePaymentErrorMessage(
+        "You must be logged in to record advance payments."
+      );
+      return;
+    }
+
+    const pettyContractor = getPettyContractorById(
+      advancePaymentPettyContractorId
+    );
+    const parsedAmount = Number.parseFloat(advancePaymentAmount);
+
+    if (!pettyContractor) {
+      setAdvancePaymentErrorMessage(
+        "Choose a valid petty contractor from the list."
+      );
+      return;
+    }
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setAdvancePaymentErrorMessage(
+        "Enter a valid advance payment amount greater than zero."
+      );
+      return;
+    }
+
+    const createdByUserId = Number(currentUser.id);
+
+    if (!Number.isFinite(createdByUserId)) {
+      setAdvancePaymentErrorMessage(
+        "The current user id is not in a numeric format."
+      );
+      return;
+    }
+
+    const createdByUserName =
+      [currentUser.first_name, currentUser.last_name].filter(Boolean).join(" ") ||
+      currentUser.email_id ||
+      "Unknown User";
+
+    setIsSavingAdvancePayment(true);
+    setAdvancePaymentErrorMessage("");
+
+    try {
+      await createAdvancePayment({
+        projectId: project.id,
+        recordDate: advancePaymentRecordDate,
+        pettyContractorId: pettyContractor.id,
+        pettyContractorName: pettyContractor.petty_contractor_name,
+        advancePaymentAmount: parsedAmount,
+        advancePaymentDescription: advancePaymentDescription,
+        createdByUserId,
+        createdByUserName,
+      });
+
+      await refreshEntries();
+      handleCloseAdvancePaymentModal();
+    } catch (error) {
+      console.error(error);
+      setAdvancePaymentErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to save advance payment."
+      );
+    } finally {
+      setIsSavingAdvancePayment(false);
+    }
   }
 
   async function handleCreatePettyContractor(
@@ -929,6 +1082,75 @@ export function MusterRollPanel({
     }
   }
 
+  async function handleSaveAdvancePaymentEdit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
+    event.preventDefault();
+
+    if (!editingAdvancePayment) {
+      return;
+    }
+
+    if (!editAdvancePaymentRecordDate) {
+      setEditAdvancePaymentErrorMessage("Select a record date first.");
+      return;
+    }
+
+    const pettyContractor = getPettyContractorById(
+      editAdvancePaymentPettyContractorId
+    );
+    const parsedAmount = Number.parseFloat(editAdvancePaymentAmount);
+
+    if (!pettyContractor) {
+      setEditAdvancePaymentErrorMessage(
+        "Choose a valid petty contractor from the list."
+      );
+      return;
+    }
+
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setEditAdvancePaymentErrorMessage(
+        "Enter a valid advance payment amount greater than zero."
+      );
+      return;
+    }
+
+    const rowId = editingAdvancePayment.rows[0]?.rowId;
+
+    if (!rowId) {
+      setEditAdvancePaymentErrorMessage(
+        "This advance payment entry could not be resolved."
+      );
+      return;
+    }
+
+    setIsSavingAdvancePaymentEdit(true);
+    setEditAdvancePaymentErrorMessage("");
+
+    try {
+      await updateAdvancePayment({
+        rowId,
+        recordDate: editAdvancePaymentRecordDate,
+        pettyContractorId: pettyContractor.id,
+        pettyContractorName: pettyContractor.petty_contractor_name,
+        advancePaymentAmount: parsedAmount,
+        advancePaymentDescription: editAdvancePaymentDescription,
+      });
+
+      await refreshEntries();
+      handleCloseEditAdvancePaymentModal();
+    } catch (error) {
+      console.error(error);
+      setEditAdvancePaymentErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to update advance payment."
+      );
+    } finally {
+      setIsSavingAdvancePaymentEdit(false);
+    }
+  }
+
   async function handleDeleteEntry() {
     if (!deleteEntryCandidate) {
       return;
@@ -949,6 +1171,12 @@ export function MusterRollPanel({
 
       if (editingEntry?.entryGroupId === deleteEntryCandidate.entryGroupId) {
         handleCloseEditModal();
+      }
+
+      if (
+        editingAdvancePayment?.entryGroupId === deleteEntryCandidate.entryGroupId
+      ) {
+        handleCloseEditAdvancePaymentModal();
       }
 
       handleCloseDeleteModal();
@@ -1017,6 +1245,14 @@ export function MusterRollPanel({
 
               <button
                 type="button"
+                onClick={handleOpenAdvancePaymentModal}
+                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-sm font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+              >
+                Record Advance Payment
+              </button>
+
+              <button
+                type="button"
                 onClick={handleOpenPettyContractorDialog}
                 className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-sm font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
               >
@@ -1081,6 +1317,28 @@ export function MusterRollPanel({
         onSubmit={handleCreatePettyContractor}
       />
 
+      <AdvancePaymentModal
+        isOpen={isAdvancePaymentModalOpen}
+        pettyContractors={pettyContractors}
+        isLoadingPettyContractors={isLoadingPettyContractors}
+        title="Record Advance Payment"
+        description="Capture any part-payment or advance paid to a petty contractor before month-end settlement."
+        recordDate={advancePaymentRecordDate}
+        pettyContractorId={advancePaymentPettyContractorId}
+        amount={advancePaymentAmount}
+        paymentDescription={advancePaymentDescription}
+        errorMessage={advancePaymentErrorMessage}
+        isSaving={isSavingAdvancePayment}
+        submitLabel="Save Advance Payment"
+        savingLabel="Saving Advance..."
+        onClose={handleCloseAdvancePaymentModal}
+        onSubmit={handleAdvancePaymentSubmit}
+        onRecordDateChange={setAdvancePaymentRecordDate}
+        onPettyContractorIdChange={setAdvancePaymentPettyContractorId}
+        onAmountChange={setAdvancePaymentAmount}
+        onDescriptionChange={setAdvancePaymentDescription}
+      />
+
       <GenerateMusterRollDialog
         isOpen={isGenerateDialogOpen}
         projectName={project.project_name}
@@ -1114,6 +1372,28 @@ export function MusterRollPanel({
         onRecordDateChange={setEditRecordDate}
         onAddRow={handleAddEditRow}
         onFieldChange={handleEditFieldChange}
+      />
+
+      <AdvancePaymentModal
+        isOpen={Boolean(editingAdvancePayment)}
+        pettyContractors={pettyContractors}
+        isLoadingPettyContractors={isLoadingPettyContractors}
+        title="Edit Advance Payment"
+        description="Update the date, petty contractor, amount, or optional description for this recorded advance payment."
+        recordDate={editAdvancePaymentRecordDate}
+        pettyContractorId={editAdvancePaymentPettyContractorId}
+        amount={editAdvancePaymentAmount}
+        paymentDescription={editAdvancePaymentDescription}
+        errorMessage={editAdvancePaymentErrorMessage}
+        isSaving={isSavingAdvancePaymentEdit}
+        submitLabel="Save Changes"
+        savingLabel="Saving Changes..."
+        onClose={handleCloseEditAdvancePaymentModal}
+        onSubmit={handleSaveAdvancePaymentEdit}
+        onRecordDateChange={setEditAdvancePaymentRecordDate}
+        onPettyContractorIdChange={setEditAdvancePaymentPettyContractorId}
+        onAmountChange={setEditAdvancePaymentAmount}
+        onDescriptionChange={setEditAdvancePaymentDescription}
       />
 
       <DeleteMusterRollEntryDialog
@@ -1178,8 +1458,8 @@ function MusterRollEntriesTable({
         <div className="p-10 text-center">
           <h3 className="text-lg font-semibold">No muster roll entries yet</h3>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Start with petty contractors, then use Add New Entry to prepare the
-            labour-hour form for this project.
+            Start with petty contractors, then use Add New Entry or Record
+            Advance Payment to begin tracking this project.
           </p>
         </div>
       ) : (
@@ -1213,20 +1493,26 @@ function MusterRollEntriesTable({
                   <td className="px-4 py-4 text-[var(--muted)]">
                     {formatDate(entry.recordDate)}
                   </td>
-                  <td className="px-4 py-4 font-medium">
-                    {entry.pettyContractorSummary}
+                  <td className="px-4 py-4">
+                    <p className="font-medium">{entry.pettyContractorSummary}</p>
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
-                    {entry.rows.length}
+                    {entry.entryType === "advance-payment" ? "-" : entry.rows.length}
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
-                    {formatNumber(entry.totalRegularHours)}
+                    {entry.entryType === "advance-payment"
+                      ? "-"
+                      : formatNumber(entry.totalRegularHours)}
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
-                    {formatNumber(entry.totalOvertimeHours)}
+                    {entry.entryType === "advance-payment"
+                      ? "-"
+                      : formatNumber(entry.totalOvertimeHours)}
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
-                    {formatCurrencyInr(entry.totalAmount)}
+                    {entry.entryType === "advance-payment"
+                      ? formatAccountingCurrencyInr(entry.totalAmount)
+                      : formatCurrencyInr(entry.totalAmount)}
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
                     {entry.createdBy}
@@ -1880,6 +2166,149 @@ function EditMusterRollEntryModal({
   );
 }
 
+type AdvancePaymentModalProps = {
+  isOpen: boolean;
+  pettyContractors: PettyContractorRecord[];
+  isLoadingPettyContractors: boolean;
+  title: string;
+  description: string;
+  recordDate: string;
+  pettyContractorId: string;
+  amount: string;
+  paymentDescription: string;
+  errorMessage: string;
+  isSaving: boolean;
+  submitLabel: string;
+  savingLabel: string;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+  onRecordDateChange: (value: string) => void;
+  onPettyContractorIdChange: (value: string) => void;
+  onAmountChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+};
+
+function AdvancePaymentModal({
+  isOpen,
+  pettyContractors,
+  isLoadingPettyContractors,
+  title,
+  description,
+  recordDate,
+  pettyContractorId,
+  amount,
+  paymentDescription,
+  errorMessage,
+  isSaving,
+  submitLabel,
+  savingLabel,
+  onClose,
+  onSubmit,
+  onRecordDateChange,
+  onPettyContractorIdChange,
+  onAmountChange,
+  onDescriptionChange,
+}: AdvancePaymentModalProps) {
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold">{title}</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <form onSubmit={onSubmit} className="space-y-4">
+          <Field label="Record Date" required>
+            <Input
+              type="date"
+              value={recordDate}
+              onChange={(event) => onRecordDateChange(event.target.value)}
+            />
+          </Field>
+
+          <Field label="Petty Contractor" required>
+            <select
+              value={pettyContractorId}
+              onChange={(event) => onPettyContractorIdChange(event.target.value)}
+              className={compactInputClassName}
+            >
+              <option value="">
+                {isLoadingPettyContractors
+                  ? "Loading petty contractors..."
+                  : pettyContractors.length === 0
+                    ? "No petty contractors yet"
+                    : "Select petty contractor"}
+              </option>
+              {pettyContractors.map((contractor) => (
+                <option key={contractor.id} value={String(contractor.id)}>
+                  {contractor.petty_contractor_name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Advance Payment Amount" required>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(event) => onAmountChange(event.target.value)}
+              placeholder="Enter advance payment amount"
+            />
+          </Field>
+
+          <Field label="Description (Optional)">
+            <textarea
+              value={paymentDescription}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              rows={4}
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition duration-200 placeholder:text-[var(--placeholder)] focus:border-[var(--border-strong)]"
+              placeholder="Add any note for this advance payment"
+            />
+          </Field>
+
+          {errorMessage ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+              {errorMessage}
+            </div>
+          ) : null}
+
+          <div className="flex justify-end">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-2xl bg-green-600 px-6 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+            >
+              {isSaving ? savingLabel : submitLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 type DeleteMusterRollEntryDialogProps = {
   entry: MusterRollEntry | null;
   errorMessage: string;
@@ -1910,10 +2339,15 @@ function DeleteMusterRollEntryDialog({
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-2xl font-semibold">Delete Muster Roll Entry</h3>
+            <h3 className="text-2xl font-semibold">
+              {entry.entryType === "advance-payment"
+                ? "Delete Advance Payment"
+                : "Delete Muster Roll Entry"}
+            </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              This will permanently remove all labour rows saved under this
-              grouped muster roll entry.
+              {entry.entryType === "advance-payment"
+                ? "This will permanently remove this recorded advance payment."
+                : "This will permanently remove all labour rows saved under this grouped muster roll entry."}
             </p>
           </div>
 
@@ -1927,15 +2361,42 @@ function DeleteMusterRollEntryDialog({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <InfoTile label="Entry Date" value={formatDate(entry.recordDate)} />
+          <InfoTile
+            label={
+              entry.entryType === "advance-payment" ? "Record Date" : "Entry Date"
+            }
+            value={formatDate(entry.recordDate)}
+          />
           <InfoTile label="Petty Contractor" value={entry.pettyContractorSummary} />
-          <InfoTile label="Regular Hours" value={formatNumber(entry.totalRegularHours)} />
-          <InfoTile label="Overtime Hours" value={formatNumber(entry.totalOvertimeHours)} />
+          {entry.entryType === "advance-payment" ? (
+            <>
+              <InfoTile
+                label="Advance Amount"
+                value={formatAccountingCurrencyInr(entry.totalAmount)}
+              />
+              <InfoTile
+                label="Description"
+                value={entry.advancePaymentDescription || "No description"}
+              />
+            </>
+          ) : (
+            <>
+              <InfoTile
+                label="Regular Hours"
+                value={formatNumber(entry.totalRegularHours)}
+              />
+              <InfoTile
+                label="Overtime Hours"
+                value={formatNumber(entry.totalOvertimeHours)}
+              />
+            </>
+          )}
         </div>
 
         <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-sm text-[var(--foreground)]">
-          Deleting this entry will remove every grouped muster roll row under
-          this saved submission.
+          {entry.entryType === "advance-payment"
+            ? "Deleting this entry will remove this saved advance payment record."
+            : "Deleting this entry will remove every grouped muster roll row under this saved submission."}
         </div>
 
         {errorMessage ? (
@@ -1960,7 +2421,13 @@ function DeleteMusterRollEntryDialog({
             disabled={isDeleting}
             className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
           >
-            {isDeleting ? "Deleting Entry..." : "Delete Entry"}
+            {isDeleting
+              ? entry.entryType === "advance-payment"
+                ? "Deleting Advance..."
+                : "Deleting Entry..."
+              : entry.entryType === "advance-payment"
+                ? "Delete Advance Payment"
+                : "Delete Entry"}
           </button>
         </div>
       </div>
@@ -2554,9 +3021,15 @@ function ExpandedMusterRollEntryDialog({
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-2xl font-semibold">Muster Roll Entry</h3>
+            <h3 className="text-2xl font-semibold">
+              {entry.entryType === "advance-payment"
+                ? "Advance Payment"
+                : "Muster Roll Entry"}
+            </h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Review the grouped labour rows currently saved for this entry.
+              {entry.entryType === "advance-payment"
+                ? "Review the recorded details for this petty contractor advance payment."
+                : "Review the grouped labour rows currently saved for this entry."}
             </p>
           </div>
 
@@ -2570,73 +3043,101 @@ function ExpandedMusterRollEntryDialog({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <InfoTile label="Entry Date" value={formatDate(entry.recordDate)} />
+          <InfoTile
+            label={
+              entry.entryType === "advance-payment" ? "Record Date" : "Entry Date"
+            }
+            value={formatDate(entry.recordDate)}
+          />
           <InfoTile
             label="Petty Contractor"
             value={entry.pettyContractorSummary}
           />
-          <InfoTile
-            label="Regular Hours"
-            value={formatNumber(entry.totalRegularHours)}
-          />
-          <InfoTile
-            label="Overtime Hours"
-            value={formatNumber(entry.totalOvertimeHours)}
-          />
+          {entry.entryType === "advance-payment" ? (
+            <>
+              <InfoTile
+                label="Advance Amount"
+                value={formatAccountingCurrencyInr(entry.totalAmount)}
+              />
+              <InfoTile label="Created By" value={entry.createdBy} />
+            </>
+          ) : (
+            <>
+              <InfoTile
+                label="Regular Hours"
+                value={formatNumber(entry.totalRegularHours)}
+              />
+              <InfoTile
+                label="Overtime Hours"
+                value={formatNumber(entry.totalOvertimeHours)}
+              />
+            </>
+          )}
         </div>
 
-        <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
-              <thead className="bg-[var(--surface)]">
-                <tr>
-                  {[
-                    "Petty Contractor",
-                    "Crew Name",
-                    "Crew Type",
-                    "Regular Hours",
-                    "Overtime Hours",
-                    "Rate",
-                    "Line Total",
-                  ].map((heading) => (
-                    <th
-                      key={heading}
-                      className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
-                    >
-                      {heading}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-[var(--border)]">
-                {entry.rows.map((row) => (
-                  <tr key={row.rowId}>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {row.pettyContractorName}
-                    </td>
-                    <td className="px-4 py-4 font-medium">{row.crewName}</td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {row.crewType}
-                    </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {formatNumber(row.regularHours)}
-                    </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {formatNumber(row.overtimeHours)}
-                    </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {formatCurrencyInr(row.rate)}
-                    </td>
-                    <td className="px-4 py-4 text-[var(--muted)]">
-                      {formatCurrencyInr(row.lineTotal)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {entry.entryType === "advance-payment" ? (
+          <div className="mt-6 rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-6">
+            <p className="text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+              Description
+            </p>
+            <p className="mt-3 whitespace-pre-wrap text-sm text-[var(--foreground)]">
+              {entry.advancePaymentDescription || "No description added."}
+            </p>
           </div>
-        </div>
+        ) : (
+          <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+                <thead className="bg-[var(--surface)]">
+                  <tr>
+                    {[
+                      "Petty Contractor",
+                      "Crew Name",
+                      "Crew Type",
+                      "Regular Hours",
+                      "Overtime Hours",
+                      "Rate",
+                      "Line Total",
+                    ].map((heading) => (
+                      <th
+                        key={heading}
+                        className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                      >
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-[var(--border)]">
+                  {entry.rows.map((row) => (
+                    <tr key={row.rowId}>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {row.pettyContractorName}
+                      </td>
+                      <td className="px-4 py-4 font-medium">{row.crewName}</td>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {row.crewType}
+                      </td>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {formatNumber(row.regularHours)}
+                      </td>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {formatNumber(row.overtimeHours)}
+                      </td>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {formatCurrencyInr(row.rate)}
+                      </td>
+                      <td className="px-4 py-4 text-[var(--muted)]">
+                        {formatCurrencyInr(row.lineTotal)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2720,6 +3221,14 @@ function formatCurrencyInr(value: number) {
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(value);
+}
+
+function formatAccountingCurrencyInr(value: number) {
+  if (value < 0) {
+    return `(${formatCurrencyInr(Math.abs(value))})`;
+  }
+
+  return formatCurrencyInr(value);
 }
 
 function formatContractorRate(value: number | null) {

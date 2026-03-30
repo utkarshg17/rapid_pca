@@ -15,9 +15,11 @@ export type MusterRollRowRecord = {
   petty_contractor_name: string;
   crew_name: string;
   crew_type: string;
-  regular_hours: number;
-  overtime_hours: number;
-  rate: number;
+  regular_hours: number | null;
+  overtime_hours: number | null;
+  rate: number | null;
+  advance_payment: number | null;
+  advance_payment_description: string | null;
   entry_group_id: number | string | null;
   created_by_user_name: string;
   created_by_user_id: number;
@@ -33,17 +35,24 @@ export type MusterRollEntryRow = {
   overtimeHours: number;
   rate: number;
   lineTotal: number;
+  advancePayment: number;
+  advancePaymentDescription: string;
 };
+
+export type MusterRollEntryType = "hours" | "advance-payment";
 
 export type MusterRollEntry = {
   id: number;
   createdAt: string;
   recordDate: string;
+  entryType: MusterRollEntryType;
   pettyContractorSummary: string;
   createdBy: string;
   entryGroupId: string;
   totalRegularHours: number;
   totalOvertimeHours: number;
   totalAmount: number;
+  advancePaymentAmount: number;
+  advancePaymentDescription: string;
   rows: MusterRollEntryRow[];
 };
