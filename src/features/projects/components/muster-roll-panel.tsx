@@ -7,6 +7,7 @@ import { createAdvancePayment } from "@/features/projects/services/create-advanc
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
 import { createMusterRollEntry } from "@/features/projects/services/create-muster-roll-entry";
 import { createPettyContractor } from "@/features/projects/services/create-petty-contractor";
+import { deletePettyContractor } from "@/features/projects/services/delete-petty-contractor";
 import { deleteMusterRollEntry } from "@/features/projects/services/delete-muster-roll-entry";
 import { getMusterRollEntries } from "@/features/projects/services/get-muster-roll-entries";
 import { getPettyContractors } from "@/features/projects/services/get-petty-contractors";
@@ -120,6 +121,20 @@ function createDraftRowsFromEntry(entry: MusterRollEntry): MusterRollDraftRow[] 
   }));
 }
 
+function createDuplicateDraftRowsFromEntry(
+  entry: MusterRollEntry
+): MusterRollDraftRow[] {
+  return entry.rows.map((row) => ({
+    id: createEmptyDraftRow().id,
+    pettyContractorId: row.pettyContractorId ? String(row.pettyContractorId) : "",
+    crewName: row.crewName,
+    crewType: row.crewType,
+    regularHours: String(row.regularHours),
+    overtimeHours: String(row.overtimeHours),
+    rate: String(row.rate),
+  }));
+}
+
 function summarizeDraftRows(rows: MusterRollDraftRow[]) {
   return rows.reduce(
     (summary, row) => {
@@ -214,6 +229,12 @@ export function MusterRollPanel({
   const [editPettyContractorErrorMessage, setEditPettyContractorErrorMessage] =
     useState("");
   const [isSavingPettyContractor, setIsSavingPettyContractor] = useState(false);
+  const [deletePettyContractorCandidate, setDeletePettyContractorCandidate] =
+    useState<PettyContractorRecord | null>(null);
+  const [deletePettyContractorErrorMessage, setDeletePettyContractorErrorMessage] =
+    useState("");
+  const [isDeletingPettyContractor, setIsDeletingPettyContractor] =
+    useState(false);
   const [pettyContractorErrorMessage, setPettyContractorErrorMessage] =
     useState("");
   const [pettyContractorSuccessMessage, setPettyContractorSuccessMessage] =
@@ -224,6 +245,8 @@ export function MusterRollPanel({
     null
   );
   const [deleteEntryCandidate, setDeleteEntryCandidate] =
+    useState<MusterRollEntry | null>(null);
+  const [duplicateEntryCandidate, setDuplicateEntryCandidate] =
     useState<MusterRollEntry | null>(null);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [isDeletingEntry, setIsDeletingEntry] = useState(false);
@@ -435,10 +458,22 @@ export function MusterRollPanel({
     setDeleteErrorMessage("");
   }
 
+  function handleOpenDuplicateModal(entry: MusterRollEntry) {
+    if (entry.entryType !== "hours") {
+      return;
+    }
+
+    setDuplicateEntryCandidate(entry);
+  }
+
   function handleCloseDeleteModal() {
     setDeleteEntryCandidate(null);
     setDeleteErrorMessage("");
     setIsDeletingEntry(false);
+  }
+
+  function handleCloseDuplicateModal() {
+    setDuplicateEntryCandidate(null);
   }
 
   function handleOpenPettyContractorDialog() {
@@ -482,6 +517,19 @@ export function MusterRollPanel({
     setEditPettyContractorMasonRate("");
     setEditPettyContractorErrorMessage("");
     setIsSavingPettyContractor(false);
+  }
+
+  function handleOpenDeletePettyContractorModal(
+    pettyContractor: PettyContractorRecord
+  ) {
+    setDeletePettyContractorCandidate(pettyContractor);
+    setDeletePettyContractorErrorMessage("");
+  }
+
+  function handleCloseDeletePettyContractorModal() {
+    setDeletePettyContractorCandidate(null);
+    setDeletePettyContractorErrorMessage("");
+    setIsDeletingPettyContractor(false);
   }
 
   function handleOpenGenerateDialog() {
@@ -839,6 +887,40 @@ export function MusterRollPanel({
       );
     } finally {
       setIsSavingPettyContractor(false);
+    }
+  }
+
+  async function handleDeletePettyContractor() {
+    if (!deletePettyContractorCandidate) {
+      return;
+    }
+
+    setIsDeletingPettyContractor(true);
+    setDeletePettyContractorErrorMessage("");
+
+    try {
+      await deletePettyContractor(deletePettyContractorCandidate.id);
+
+      setPettyContractors((prev) =>
+        prev.filter(
+          (contractor) => contractor.id !== deletePettyContractorCandidate.id
+        )
+      );
+
+      if (editingPettyContractor?.id === deletePettyContractorCandidate.id) {
+        handleCloseEditPettyContractorModal();
+      }
+
+      handleCloseDeletePettyContractorModal();
+    } catch (error) {
+      console.error(error);
+      setDeletePettyContractorErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete petty contractor."
+      );
+    } finally {
+      setIsDeletingPettyContractor(false);
     }
   }
 
@@ -1203,6 +1285,19 @@ export function MusterRollPanel({
     window.location.href = reportUrl;
   }
 
+  function handleConfirmDuplicateEntry() {
+    if (!duplicateEntryCandidate || duplicateEntryCandidate.entryType !== "hours") {
+      return;
+    }
+
+    setEntryDate(getTodayDateValue());
+    setDraftRows(createDuplicateDraftRowsFromEntry(duplicateEntryCandidate));
+    setEntryErrorMessage("");
+    setEntryNoticeMessage("");
+    setIsEntryModalOpen(true);
+    handleCloseDuplicateModal();
+  }
+
   return (
     <>
       <section className="space-y-6 text-[var(--foreground)]">
@@ -1274,6 +1369,7 @@ export function MusterRollPanel({
           entries={filteredEntries}
           isLoadingEntries={isLoadingEntries}
           onExpandEntry={setExpandedEntry}
+          onDuplicateEntry={handleOpenDuplicateModal}
           onEditEntry={handleOpenEditModal}
           onDeleteEntry={handleOpenDeleteModal}
         />
@@ -1314,6 +1410,7 @@ export function MusterRollPanel({
         onNewLabourRateChange={setNewLabourRate}
         onNewMasonRateChange={setNewMasonRate}
         onEditPettyContractor={handleOpenEditPettyContractorModal}
+        onDeletePettyContractor={handleOpenDeletePettyContractorModal}
         onSubmit={handleCreatePettyContractor}
       />
 
@@ -1404,6 +1501,12 @@ export function MusterRollPanel({
         onDelete={handleDeleteEntry}
       />
 
+      <DuplicateMusterRollEntryDialog
+        entry={duplicateEntryCandidate}
+        onClose={handleCloseDuplicateModal}
+        onDuplicate={handleConfirmDuplicateEntry}
+      />
+
       <EditPettyContractorModal
         pettyContractor={editingPettyContractor}
         pettyContractorName={editPettyContractorName}
@@ -1416,6 +1519,14 @@ export function MusterRollPanel({
         onNameChange={setEditPettyContractorName}
         onLabourRateChange={setEditPettyContractorLabourRate}
         onMasonRateChange={setEditPettyContractorMasonRate}
+      />
+
+      <DeletePettyContractorDialog
+        pettyContractor={deletePettyContractorCandidate}
+        errorMessage={deletePettyContractorErrorMessage}
+        isDeleting={isDeletingPettyContractor}
+        onClose={handleCloseDeletePettyContractorModal}
+        onDelete={handleDeletePettyContractor}
       />
     </>
   );
@@ -1437,6 +1548,7 @@ type MusterRollEntriesTableProps = {
   entries: MusterRollEntry[];
   isLoadingEntries: boolean;
   onExpandEntry: (entry: MusterRollEntry) => void;
+  onDuplicateEntry: (entry: MusterRollEntry) => void;
   onEditEntry: (entry: MusterRollEntry) => void;
   onDeleteEntry: (entry: MusterRollEntry) => void;
 };
@@ -1445,6 +1557,7 @@ function MusterRollEntriesTable({
   entries,
   isLoadingEntries,
   onExpandEntry,
+  onDuplicateEntry,
   onEditEntry,
   onDeleteEntry,
 }: MusterRollEntriesTableProps) {
@@ -1538,6 +1651,18 @@ function MusterRollEntriesTable({
                       >
                         <EditIcon />
                       </button>
+
+                      {entry.entryType === "hours" ? (
+                        <button
+                          type="button"
+                          onClick={() => onDuplicateEntry(entry)}
+                          aria-label={`Duplicate muster roll entry for ${entry.pettyContractorSummary}`}
+                          title="Duplicate entry"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                        >
+                          <DuplicateIcon />
+                        </button>
+                      ) : null}
 
                       <button
                         type="button"
@@ -2166,6 +2291,78 @@ function EditMusterRollEntryModal({
   );
 }
 
+type DuplicateMusterRollEntryDialogProps = {
+  entry: MusterRollEntry | null;
+  onClose: () => void;
+  onDuplicate: () => void;
+};
+
+function DuplicateMusterRollEntryDialog({
+  entry,
+  onClose,
+  onDuplicate,
+}: DuplicateMusterRollEntryDialogProps) {
+  if (!entry) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold">Duplicate Muster Roll Entry</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Do you want to duplicate this entry? We will open the same labour
+              rows in the Add New Entry form and set the record date to today.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <InfoTile label="Original Date" value={formatDate(entry.recordDate)} />
+          <InfoTile label="Crew Rows" value={String(entry.rows.length)} />
+          <InfoTile
+            label="Petty Contractor"
+            value={entry.pettyContractorSummary}
+          />
+        </div>
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            No
+          </button>
+          <button
+            type="button"
+            onClick={onDuplicate}
+            className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
+          >
+            Yes, Duplicate Entry
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type AdvancePaymentModalProps = {
   isOpen: boolean;
   pettyContractors: PettyContractorRecord[];
@@ -2602,6 +2799,7 @@ type PettyContractorDialogProps = {
   onNewLabourRateChange: (value: string) => void;
   onNewMasonRateChange: (value: string) => void;
   onEditPettyContractor: (pettyContractor: PettyContractorRecord) => void;
+  onDeletePettyContractor: (pettyContractor: PettyContractorRecord) => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 };
 
@@ -2622,6 +2820,7 @@ function PettyContractorDialog({
   onNewLabourRateChange,
   onNewMasonRateChange,
   onEditPettyContractor,
+  onDeletePettyContractor,
   onSubmit,
 }: PettyContractorDialogProps) {
   if (!isOpen) {
@@ -2690,8 +2889,8 @@ function PettyContractorDialog({
                       <tr>
                         {[
                           "Petty Contractor",
-                          "Mason Rate",
-                          "Labour Rate",
+                          "Mason Rate (12h)",
+                          "Labour Rate (12h)",
                           "Added",
                           "Action",
                         ].map((heading) => (
@@ -2721,13 +2920,22 @@ function PettyContractorDialog({
                             {formatCreatedAt(contractor.created_at)}
                           </td>
                           <td className="px-4 py-4">
-                            <button
-                              type="button"
-                              onClick={() => onEditPettyContractor(contractor)}
-                              className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
-                            >
-                              Edit
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onEditPettyContractor(contractor)}
+                                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeletePettyContractor(contractor)}
+                                className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-red-500/20"
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2753,7 +2961,7 @@ function PettyContractorDialog({
                 />
               </Field>
 
-              <Field label="Mason Rate" required>
+              <Field label="Mason Rate (12h)" required>
                 <Input
                   type="number"
                   min="0"
@@ -2764,7 +2972,7 @@ function PettyContractorDialog({
                 />
               </Field>
 
-              <Field label="Labour Rate" required>
+              <Field label="Labour Rate (12h)" required>
                 <Input
                   type="number"
                   min="0"
@@ -2870,7 +3078,7 @@ function EditPettyContractorModal({
             />
           </Field>
 
-          <Field label="Mason Rate" required>
+          <Field label="Mason Rate (12h)" required>
             <Input
               type="number"
               min="0"
@@ -2881,7 +3089,7 @@ function EditPettyContractorModal({
             />
           </Field>
 
-          <Field label="Labour Rate" required>
+          <Field label="Labour Rate (12h)" required>
             <Input
               type="number"
               min="0"
@@ -2908,6 +3116,102 @@ function EditPettyContractorModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+type DeletePettyContractorDialogProps = {
+  pettyContractor: PettyContractorRecord | null;
+  errorMessage: string;
+  isDeleting: boolean;
+  onClose: () => void;
+  onDelete: () => void;
+};
+
+function DeletePettyContractorDialog({
+  pettyContractor,
+  errorMessage,
+  isDeleting,
+  onClose,
+  onDelete,
+}: DeletePettyContractorDialogProps) {
+  if (!pettyContractor) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold">Delete Petty Contractor</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              This will remove the petty contractor from the saved list for
+              future Muster Roll entries.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <InfoTile
+            label="Petty Contractor"
+            value={pettyContractor.petty_contractor_name}
+          />
+          <InfoTile
+            label="Mason Rate (12h)"
+            value={formatContractorRate(pettyContractor.mason_rate)}
+          />
+          <InfoTile
+            label="Labour Rate (12h)"
+            value={formatContractorRate(pettyContractor.labour_rate)}
+          />
+          <InfoTile label="Added" value={formatCreatedAt(pettyContractor.created_at)} />
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-4 text-sm text-[var(--foreground)]">
+          Existing saved Muster Roll entries will stay visible, but this petty
+          contractor will no longer be available in new dropdown selections.
+        </div>
+
+        {errorMessage ? (
+          <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {errorMessage}
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isDeleting}
+            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-5 py-3 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="rounded-2xl bg-red-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+          >
+            {isDeleting ? "Deleting Contractor..." : "Delete Petty Contractor"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -3285,6 +3589,25 @@ function EditIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
         d="m4 20 4.5-1 9-9a2.12 2.12 0 1 0-3-3l-9 9L4 20Z"
+      />
+    </svg>
+  );
+}
+
+function DuplicateIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M8 8h10v10H8zM6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
       />
     </svg>
   );

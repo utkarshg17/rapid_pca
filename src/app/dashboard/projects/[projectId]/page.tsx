@@ -15,6 +15,7 @@ import { ProjectOverviewPanel } from "@/features/projects/components/project-ove
 import { EditProjectDialog } from "@/features/projects/components/edit-project-dialog";
 import { LabourSheetPanel } from "@/features/projects/components/labour-sheet-panel";
 import { MusterRollPanel } from "@/features/projects/components/muster-roll-panel";
+import { ProductionLogPanel } from "@/features/projects/components/production-log-panel";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
 import { UnitQuantitiesPanel } from "@/features/projects/components/unit-quantities-panel";
 import { getProjectById } from "@/features/projects/services/get-project-by-id";
@@ -129,10 +130,9 @@ export default function ProjectWorkspacePage() {
     switch (activeTab) {
       case "production-log":
         return (
-          <ProjectPlaceholderPanel
-            eyebrow="Production Log"
-            title="Production log is coming next"
-            description="This space is ready for daily updates, field progress, and timeline tracking once we wire that feature in."
+          <ProductionLogPanel
+            project={project}
+            currentUser={profile}
           />
         );
       case "resources":
