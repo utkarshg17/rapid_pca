@@ -13,7 +13,6 @@ import {
 import { ProjectCharterPanel } from "@/features/projects/components/project-charter-panel";
 import { ProjectOverviewPanel } from "@/features/projects/components/project-overview-panel";
 import { EditProjectDialog } from "@/features/projects/components/edit-project-dialog";
-import { LabourSheetPanel } from "@/features/projects/components/labour-sheet-panel";
 import { MusterRollPanel } from "@/features/projects/components/muster-roll-panel";
 import { ProductionLogPanel } from "@/features/projects/components/production-log-panel";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
@@ -26,7 +25,6 @@ type ProjectWorkspaceTab =
   | "production-log"
   | "resources"
   | "unit-quantities"
-  | "labour-sheet"
   | "muster-roll"
   | "site-inventory"
   | "project-charter"
@@ -49,7 +47,6 @@ const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: "production-log", label: "Production Log" },
   { key: "resources", label: "Resources" },
   { key: "unit-quantities", label: "Unit Quantities" },
-  { key: "labour-sheet", label: "Labour Sheet" },
   { key: "muster-roll", label: "Muster Roll" },
   { key: "site-inventory", label: "Site Inventory" },
   { key: "project-charter", label: "Project Charter" },
@@ -146,13 +143,6 @@ export default function ProjectWorkspacePage() {
       case "unit-quantities":
         return (
           <UnitQuantitiesPanel
-            project={project}
-            currentUser={profile}
-          />
-        );
-      case "labour-sheet":
-        return (
-          <LabourSheetPanel
             project={project}
             currentUser={profile}
           />

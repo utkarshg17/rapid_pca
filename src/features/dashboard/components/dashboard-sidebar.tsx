@@ -1,4 +1,4 @@
-type DashboardTab = "overview" | "projects" | "reports";
+type DashboardTab = "overview" | "projects" | "job-estimator" | "reports";
 
 type DashboardSidebarProps = {
   activeTab: DashboardTab;
@@ -8,6 +8,7 @@ type DashboardSidebarProps = {
 const tabs: { key: DashboardTab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "projects", label: "Projects" },
+  { key: "job-estimator", label: "Job Estimator" },
   { key: "reports", label: "Reports" },
 ];
 

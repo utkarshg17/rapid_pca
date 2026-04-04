@@ -8,12 +8,13 @@ import {
   getCurrentUserProfile,
   type UserProfile,
 } from "@/features/auth/services/get-current-user-profile";
+import { DashboardJobEstimatorPanel } from "@/features/dashboard/components/dashboard-job-estimator-panel";
 import { DashboardOverviewPanel } from "@/features/dashboard/components/dashboard-overview-panel";
 import { DashboardProjectsPanel } from "@/features/dashboard/components/dashboard-projects-panel";
 import { DashboardReportsPanel } from "@/features/dashboard/components/dashboard-reports-panel";
 import { DashboardSidebar } from "@/features/dashboard/components/dashboard-sidebar";
 
-type DashboardTab = "overview" | "projects" | "reports";
+type DashboardTab = "overview" | "projects" | "job-estimator" | "reports";
 
 export default function DashboardPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -47,6 +48,8 @@ export default function DashboardPage() {
     switch (activeTab) {
       case "projects":
         return <DashboardProjectsPanel profile={profile} />;
+      case "job-estimator":
+        return <DashboardJobEstimatorPanel />;
       case "reports":
         return <DashboardReportsPanel />;
       case "overview":
