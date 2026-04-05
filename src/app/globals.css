@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 :root {
   --background: #050505;
@@ -20,6 +20,18 @@
   --placeholder: rgba(255, 255, 255, 0.35);
   --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.25);
+  --status-success-bg: rgba(16, 185, 129, 0.12);
+  --status-success-border: rgba(16, 185, 129, 0.3);
+  --status-success-fg: #bbf7d0;
+  --status-warning-bg: rgba(245, 158, 11, 0.12);
+  --status-warning-border: rgba(245, 158, 11, 0.3);
+  --status-warning-fg: #fde68a;
+  --status-danger-bg: rgba(239, 68, 68, 0.12);
+  --status-danger-border: rgba(239, 68, 68, 0.3);
+  --status-danger-fg: #fecaca;
+  --status-info-bg: rgba(100, 116, 139, 0.12);
+  --status-info-border: rgba(100, 116, 139, 0.3);
+  --status-info-fg: #e2e8f0;
 }
 
 html[data-theme="light"] {
@@ -42,6 +54,18 @@ html[data-theme="light"] {
   --placeholder: rgba(17, 17, 17, 0.4);
   --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.12);
   --shadow-md: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --status-success-bg: rgba(16, 185, 129, 0.1);
+  --status-success-border: rgba(16, 185, 129, 0.24);
+  --status-success-fg: #166534;
+  --status-warning-bg: rgba(245, 158, 11, 0.1);
+  --status-warning-border: rgba(245, 158, 11, 0.24);
+  --status-warning-fg: #92400e;
+  --status-danger-bg: rgba(239, 68, 68, 0.1);
+  --status-danger-border: rgba(239, 68, 68, 0.24);
+  --status-danger-fg: #991b1b;
+  --status-info-bg: rgba(100, 116, 139, 0.1);
+  --status-info-border: rgba(100, 116, 139, 0.24);
+  --status-info-fg: #334155;
 }
 
 html,
@@ -73,3 +97,5 @@ textarea {
     border-color 180ms ease-out,
     box-shadow 180ms ease-out;
 }
+
+

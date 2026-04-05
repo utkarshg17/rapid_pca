@@ -1,4 +1,4 @@
-export type JobEstimateRecord = {
+﻿export type JobEstimateRecord = {
   id: number;
   created_at: string;
   project_name: string;
@@ -15,6 +15,14 @@ export type JobEstimate = {
 export type RoomTypeOption = {
   id: number;
   room_name: string;
+};
+
+export type CostCodeHierarchyNode = {
+  category: string;
+  subCategory: string;
+  subSubCategory: string;
+  item: string;
+  costCode: string;
 };
 
 export type JobEstimateAreaTakeoffRecord = {
@@ -35,6 +43,22 @@ export type JobEstimateAreaTakeoff = {
   area: string;
   unit: string;
   floorFinish: string;
+};
+
+export type JobEstimateFinishRecord = {
+  id: number;
+  created_at: string;
+  job_estimate_id: number;
+  finish_type: string | null;
+  description: string | null;
+};
+
+export type JobEstimateFinish = {
+  id: number;
+  createdAt: string;
+  jobEstimateId: number;
+  finishType: string;
+  description: string;
 };
 
 export type JobEstimateProjectDetailsRecord = {
@@ -89,4 +113,120 @@ export type JobEstimateProjectDetails = {
   createdById: number | null;
   createdByName: string;
   createdAt: string | null;
+};
+
+export type JobEstimateDetailedItemRecord = {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  job_estimate_id: number;
+  cost_code: string;
+  item_name: string;
+  unit: string;
+  save_status: string | null;
+  source_type: string | null;
+  ai_generated_at: string | null;
+  saved_by_id: string | null;
+  saved_by_name: string | null;
+};
+
+export type JobEstimateDetailedItemRowRecord = {
+  id: number;
+  created_at: string;
+  updated_at: string;
+  detailed_item_id: number;
+  row_key: string;
+  row_label: string;
+  quantity: number | null;
+  unit: string | null;
+  material_cost_per_unit: number | null;
+  labour_cost_per_unit: number | null;
+  equipment_cost_per_unit: number | null;
+  total_cost_per_unit: number | null;
+  row_total: number | null;
+  assumed_system: string | null;
+  assumptions: string | null;
+  confidence: string | null;
+  status: string | null;
+  sort_order: number | null;
+};
+
+export type JobEstimateDetailedItem = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  jobEstimateId: number;
+  costCode: string;
+  itemName: string;
+  unit: string;
+  saveStatus: string;
+  sourceType: string;
+  aiGeneratedAt: string | null;
+  savedById: string | null;
+  savedByName: string;
+};
+
+export type JobEstimateDetailedItemRow = {
+  id: number;
+  createdAt: string;
+  updatedAt: string;
+  detailedItemId: number;
+  rowKey: string;
+  rowLabel: string;
+  quantity: number;
+  unit: string;
+  materialCostPerUnit: number;
+  labourCostPerUnit: number;
+  equipmentCostPerUnit: number;
+  totalCostPerUnit: number;
+  rowTotal: number;
+  assumedSystem: string;
+  assumptions: string;
+  confidence: string;
+  status: string;
+  sortOrder: number;
+};
+
+export type JobEstimateDetailedItemWithRows = {
+  item: JobEstimateDetailedItem;
+  rows: JobEstimateDetailedItemRow[];
+};
+
+export type SaveJobEstimateDetailedItemRowInput = {
+  rowKey: string;
+  rowLabel: string;
+  quantity: number;
+  unit: string;
+  materialCostPerUnit: number;
+  labourCostPerUnit: number;
+  equipmentCostPerUnit: number;
+  totalCostPerUnit: number;
+  rowTotal: number;
+  assumedSystem: string;
+  assumptions: string;
+  confidence: string;
+  status: string;
+  sortOrder: number;
+};
+
+export type SaveJobEstimateDetailedItemInput = {
+  jobEstimateId: number;
+  costCode: string;
+  itemName: string;
+  unit: string;
+  saveStatus?: string;
+  sourceType?: string;
+  aiGeneratedAt?: string | null;
+  savedById?: string | null;
+  savedByName?: string;
+  rows: SaveJobEstimateDetailedItemRowInput[];
+};
+
+export type JobEstimateOverviewSummaryItem = {
+  costCode: string;
+  category: string;
+  item: string;
+  quantity: number;
+  unit: string;
+  cost: number;
 };

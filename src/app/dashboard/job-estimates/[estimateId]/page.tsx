@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -11,6 +11,9 @@ import {
   type UserProfile,
 } from "@/features/auth/services/get-current-user-profile";
 import { JobEstimateAreaTakeoffsPanel } from "@/features/dashboard/components/job-estimate-area-takeoffs-panel";
+import { JobEstimateDetailedEstimatePanel } from "@/features/dashboard/components/job-estimate-detailed-estimate-panel";
+import { JobEstimateOverviewPanel } from "@/features/dashboard/components/job-estimate-overview-panel";
+import { JobEstimateFinishesPanel } from "@/features/dashboard/components/job-estimate-finishes-panel";
 import { JobEstimateProjectDetailsPanel } from "@/features/dashboard/components/job-estimate-project-details-panel";
 import { getJobEstimateById } from "@/features/dashboard/services/get-job-estimate-by-id";
 import type { JobEstimate } from "@/features/dashboard/types/job-estimate";
@@ -18,7 +21,9 @@ import type { JobEstimate } from "@/features/dashboard/types/job-estimate";
 type JobEstimateWorkspaceTab =
   | "overview"
   | "project-details"
-  | "area-takeoffs";
+  | "area-takeoffs"
+  | "finishes"
+  | "detailed-job-estimate";
 
 type JobEstimateSidebarProps = {
   activeTab: JobEstimateWorkspaceTab;
@@ -36,6 +41,8 @@ const tabs: { key: JobEstimateWorkspaceTab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "project-details", label: "Project Details" },
   { key: "area-takeoffs", label: "Area Takeoffs" },
+  { key: "finishes", label: "Finishes" },
+  { key: "detailed-job-estimate", label: "Detailed Job Estimate" },
 ];
 
 export default function JobEstimateWorkspacePage() {
@@ -112,15 +119,18 @@ export default function JobEstimateWorkspacePage() {
 
     switch (activeTab) {
       case "overview":
-        return (
-          <PlaceholderPanel
-            eyebrow="Overview"
-            title="Overview is coming next"
-            description="This space is reserved for the high-level AI estimate summary, confidence notes, and review insights once the estimator workflow is in place."
-          />
-        );
+        return <JobEstimateOverviewPanel estimate={estimate} />;
       case "area-takeoffs":
         return <JobEstimateAreaTakeoffsPanel estimate={estimate} />;
+      case "finishes":
+        return <JobEstimateFinishesPanel estimate={estimate} />;
+      case "detailed-job-estimate":
+        return (
+          <JobEstimateDetailedEstimatePanel
+            estimate={estimate}
+            currentUser={profile}
+          />
+        );
       case "project-details":
       default:
         return (
@@ -227,3 +237,4 @@ function PlaceholderPanel({
     </section>
   );
 }
+
