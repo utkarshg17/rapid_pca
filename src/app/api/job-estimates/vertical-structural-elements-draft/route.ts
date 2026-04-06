@@ -1,6 +1,8 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
+import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
 
 type VerticalStructuralElementsDraftRequestBody = {
@@ -47,7 +49,7 @@ type OpenAIChatCompletionResponse = {
 };
 
 const openAiUrl = "https://api.openai.com/v1/chat/completions";
-const model = "gpt-5.4";
+const model = "gpt-5.4-nano";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -85,6 +87,26 @@ export async function POST(request: Request) {
     superstructureFootprint: body.projectDetails?.superstructureFootprint,
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
+  });
+
+  const dsrReferenceRates = await fetchRelevantDsrRates({
+    searchTerms: ["column", "shear wall", "rcc", "concrete", "reinforcement", "formwork", "structural steel", "steel fabrication"],
+    targetUnits: isSteelStructure ? ["ton", "mt"] : ["cu.m", "cum", "m3"],
+  });
+  const webPricingContext = await buildWebPricingContext({
+    apiKey,
+    dsrReferenceRates,
+    targetUnits: isSteelStructure ? ["ton", "mt"] : ["cu.m", "cum", "m3"],
+    targetUnitLabel: `INR per ${unit}`,
+    itemName: "Vertical Structural Elements",
+    projectName: body.estimate.projectName,
+    projectType: body.estimate.projectType,
+    location: {
+      city: body.projectDetails?.city,
+      state: body.projectDetails?.state,
+      country: body.projectDetails?.country,
+    },
+    searchTerms: ["column", "shear wall", "rcc", "concrete", "reinforcement", "formwork", "structural steel", "steel fabrication"],
   });
 
   const promptPayload = {
@@ -125,6 +147,8 @@ export async function POST(request: Request) {
             "Equipment cost per ton should include the equipment typically required for steel structural work where clearly applicable.",
             "Return practical conceptual costs in INR per ton.",
             "Assume Indian construction context.",
+            ...buildDsrPromptNotes(`INR per ${unit}`),
+            ...buildPricingFallbackPromptNotes(`INR per ${unit}`),
             ...sharedUnitConsistencyNotes,
           ]
         : [
@@ -137,14 +161,22 @@ export async function POST(request: Request) {
             "Equipment cost per cu.m may include needle vibrator and any other clearly applicable RCC structural equipment.",
             "Return practical conceptual costs in INR per cu.m.",
             "Assume Indian construction context.",
+            ...buildDsrPromptNotes(`INR per ${unit}`),
+            ...buildPricingFallbackPromptNotes(`INR per ${unit}`),
             ...sharedUnitConsistencyNotes,
           ],
     },
+    webPricingContext,
+    dsrReferenceRates,
     areaTakeoffs: body.areaTakeoffs,
     finishInputs: body.allFinishes ?? [],
   };
 
-  const openAiResponse = await fetch(openAiUrl, {
+  let openAiResponse: Response;
+  let responseJson: OpenAIChatCompletionResponse;
+
+  try {
+    openAiResponse = await fetch(openAiUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -157,8 +189,8 @@ export async function POST(request: Request) {
         {
           role: "system",
           content: isSteelStructure
-            ? "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in a steel structure. Use the project details, area takeoffs, and finishes to estimate a realistic steel quantity in ton, and practical conceptual material, labour, and equipment costs in INR per ton. Do not estimate the total quantity directly. First infer a realistic benchmark ton per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost should primarily cover structural steel. Labour cost should cover fabrication and erection labour. Return only valid JSON matching the schema."
-            : "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in an RCC structure. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, and miscellaneous consumables. Labour cost must include rebar, formwork, and concrete pouring labour. Return only valid JSON matching the schema."
+            ? "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in a steel structure. Use the project details, area takeoffs, and finishes to estimate a realistic steel quantity in ton, and practical conceptual material, labour, and equipment costs in INR per ton. Do not estimate the total quantity directly. First infer a realistic benchmark ton per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost should primarily cover structural steel. Labour cost should cover fabrication and erection labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
+            : "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in an RCC structure. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, and miscellaneous consumables. Labour cost must include rebar, formwork, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
         },
         {
           role: "user",
@@ -205,9 +237,22 @@ export async function POST(request: Request) {
         },
       },
     }),
-  });
+    });
 
-  const responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+    responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+  } catch (error) {
+    console.error(
+      "Failed to read the OpenAI response for vertical structural elements draft:",
+      error
+    );
+    return NextResponse.json(
+      {
+        error:
+          "OpenAI returned an unreadable response while generating vertical structural elements draft.",
+      },
+      { status: 502 }
+    );
+  }
 
   if (!openAiResponse.ok) {
     return NextResponse.json(
@@ -259,4 +304,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+
 

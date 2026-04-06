@@ -1,4 +1,4 @@
-﻿import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import type { SaveJobEstimateDetailedItemInput } from "@/features/dashboard/types/job-estimate";
 
 export async function saveJobEstimateDetailedItem(
@@ -12,6 +12,7 @@ export async function saveJobEstimateDetailedItem(
         cost_code: input.costCode,
         item_name: input.itemName,
         unit: input.unit,
+        gfa_snapshot: input.gfaSnapshot,
         save_status: input.saveStatus ?? "reviewed",
         source_type: input.sourceType ?? "ai_edited",
         ai_generated_at: input.aiGeneratedAt ?? null,
@@ -66,6 +67,7 @@ export async function saveJobEstimateDetailedItem(
           row_key: row.rowKey,
           row_label: row.rowLabel,
           quantity: row.quantity,
+          quantity_per_gfa: row.quantityPerGfa,
           unit: row.unit,
           material_cost_per_unit: row.materialCostPerUnit,
           labour_cost_per_unit: row.labourCostPerUnit,

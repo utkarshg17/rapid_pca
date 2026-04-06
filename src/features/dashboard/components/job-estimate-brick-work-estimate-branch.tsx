@@ -1,9 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
+import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getBrickWorkCostCodeHierarchy } from "@/features/dashboard/services/get-brick-work-cost-code-hierarchy";
@@ -40,6 +44,7 @@ type JobEstimateBrickWorkEstimateBranchProps = {
   onTotalChange?: (total: number) => void;
   savedById: string | null;
   savedByName: string;
+  registerBulkGenerate?: RegisterBulkGenerateDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -114,6 +119,7 @@ export function JobEstimateBrickWorkEstimateBranch({
   onTotalChange,
   savedById,
   savedByName,
+  registerBulkGenerate,
 }: JobEstimateBrickWorkEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
@@ -246,9 +252,25 @@ export function JobEstimateBrickWorkEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRows), [reviewRows]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  const handleBulkGenerateDraft = useEffectEvent(async () => {
+    await handleGenerateDraft();
+  });
+
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
+
+  useEffect(() => {
+    if (!registerBulkGenerate) {
+      return;
+    }
+
+    registerBulkGenerate(() => handleBulkGenerateDraft());
+
+    return () => {
+      registerBulkGenerate(null);
+    };
+  }, [registerBulkGenerate]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -261,6 +283,7 @@ export function JobEstimateBrickWorkEstimateBranch({
         costCode: "C1018",
         itemName: "Brick Work",
         unit: "cu.m",
+        gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
         sourceType: "ai_edited",
         savedById,
@@ -272,6 +295,7 @@ export function JobEstimateBrickWorkEstimateBranch({
               : "brickwork-interior",
           rowLabel: row.item,
           quantity: parseOptionalNumber(row.quantity),
+          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(row.quantity), grossFloorArea),
           unit: "cu.m",
           materialCostPerUnit: parseOptionalNumber(row.materialCostPerCum),
           labourCostPerUnit: parseOptionalNumber(row.labourCostPerCum),
@@ -347,25 +371,21 @@ export function JobEstimateBrickWorkEstimateBranch({
         }),
       });
 
-      const payload = (await response.json()) as
-        | {
-            rows?: Array<{
-              item?: "Exterior Brickwork" | "Interior Brickwork";
-              quantityCum?: number;
-              assumedSystem?: string;
-              materialCostPerCum?: number;
-              labourCostPerCum?: number;
-              equipmentCostPerCum?: number;
-              assumptions?: string;
-              confidence?: "low" | "medium" | "high";
-            }>;
-            error?: string;
-          }
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to generate brick work draft.");
-      }
+      const payload = await parseDraftResponse<
+        {
+          rows?: Array<{
+            item?: "Exterior Brickwork" | "Interior Brickwork";
+            quantityCum?: number;
+            assumedSystem?: string;
+            materialCostPerCum?: number;
+            labourCostPerCum?: number;
+            equipmentCostPerCum?: number;
+            assumptions?: string;
+            confidence?: "low" | "medium" | "high";
+          }>;
+          error?: string;
+        }
+      >(response, "Failed to generate brick work draft.");
 
       const draftRows = payload?.rows ?? [];
 
@@ -540,6 +560,9 @@ export function JobEstimateBrickWorkEstimateBranch({
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                          Quantity/GFA
+                        </th>
+                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Quantity (cu.m)
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -578,6 +601,16 @@ export function JobEstimateBrickWorkEstimateBranch({
                             <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                               {row.assumptions}
                             </p>
+                          </td>
+                          <td className="px-3 py-3 align-top whitespace-nowrap">
+                            <JobEstimateRatioInput
+                              quantityValue={row.quantity}
+                              grossFloorArea={grossFloorArea}
+                              onQuantityChange={(value) =>
+                                handleRowChange(row.item, "quantity", value)
+                              }
+                              className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
+                            />
                           </td>
                           <td className="px-3 py-3 align-top whitespace-nowrap">
                             <Input
@@ -655,7 +688,7 @@ export function JobEstimateBrickWorkEstimateBranch({
                     </tbody>
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
-                        <td className="px-3 py-3 font-semibold" colSpan={6}>
+                        <td className="px-3 py-3 font-semibold" colSpan={7}>
                           Brick Work Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
@@ -831,6 +864,11 @@ function createSignature(rows: BrickWorkReviewRow[]) {
     }))
   );
 }
+
+
+
+
+
 
 
 

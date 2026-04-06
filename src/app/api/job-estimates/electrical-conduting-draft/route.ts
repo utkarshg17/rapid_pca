@@ -1,6 +1,8 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
+import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
 
 type ElectricalCondutingDraftRequestBody = {
@@ -47,7 +49,7 @@ type OpenAIChatCompletionResponse = {
 };
 
 const openAiUrl = "https://api.openai.com/v1/chat/completions";
-const model = "gpt-5.4";
+const model = "gpt-5.4-nano";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -81,6 +83,26 @@ export async function POST(request: Request) {
     superstructureFootprint: body.projectDetails?.superstructureFootprint,
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
+  });
+
+  const dsrReferenceRates = await fetchRelevantDsrRates({
+    searchTerms: ["electrical conduit", "conduit", "wiring", "distribution box", "electrical"],
+    targetUnits: ["lf", "rft", "ft", "running ft", "running feet"],
+  });
+  const webPricingContext = await buildWebPricingContext({
+    apiKey,
+    dsrReferenceRates,
+    targetUnits: ["lf", "rft", "ft", "running ft", "running feet"],
+    targetUnitLabel: "INR per LF",
+    itemName: "Electrical Conduting",
+    projectName: body.estimate.projectName,
+    projectType: body.estimate.projectType,
+    location: {
+      city: body.projectDetails?.city,
+      state: body.projectDetails?.state,
+      country: body.projectDetails?.country,
+    },
+    searchTerms: ["electrical conduit", "conduit", "wiring", "distribution box", "electrical"],
   });
 
   const promptPayload = {
@@ -123,14 +145,22 @@ export async function POST(request: Request) {
         "Equipment cost per LF may include small tools and clearly applicable installation equipment. Use 0 when equipment is not meaningfully applicable.",
         "Return practical conceptual costs in INR per LF.",
         "Assume Indian construction context.",
+        ...buildDsrPromptNotes("INR per LF"),
+        ...buildPricingFallbackPromptNotes("INR per LF"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    dsrReferenceRates,
+    webPricingContext,
     areaTakeoffs: body.areaTakeoffs,
     finishInputs: body.allFinishes ?? [],
   };
 
-  const openAiResponse = await fetch(openAiUrl, {
+  let openAiResponse: Response;
+  let responseJson: OpenAIChatCompletionResponse;
+
+  try {
+    openAiResponse = await fetch(openAiUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -143,7 +173,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Electrical Conduting. Use the project details, area takeoffs, and finishes to estimate a realistic electrical conduting quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. First infer the most appropriate LF per sq.ft of GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. This scope includes conduiting pipe, the actual wiring, and distribution boxes, but excludes switches, plugs, sockets, and fixtures. Return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Electrical Conduting. Use the project details, area takeoffs, and finishes to estimate a realistic electrical conduting quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. First infer the most appropriate LF per sq.ft of GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. This scope includes conduiting pipe, the actual wiring, and distribution boxes, but excludes switches, plugs, sockets, and fixtures. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",
@@ -190,9 +220,22 @@ export async function POST(request: Request) {
         },
       },
     }),
-  });
+    });
 
-  const responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+    responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+  } catch (error) {
+    console.error(
+      "Failed to read the OpenAI response for electrical conduting draft:",
+      error
+    );
+    return NextResponse.json(
+      {
+        error:
+          "OpenAI returned an unreadable response while generating electrical conduting draft.",
+      },
+      { status: 502 }
+    );
+  }
 
   if (!openAiResponse.ok) {
     return NextResponse.json(
@@ -243,3 +286,6 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+

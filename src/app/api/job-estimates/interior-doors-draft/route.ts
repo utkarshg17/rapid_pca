@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
 
-import {
-  buildDsrPromptNotes,
-  fetchRelevantDsrRates,
-} from "@/app/api/job-estimates/shared-dsr-rates";
-import {
-  buildPricingFallbackPromptNotes,
-  buildWebPricingContext,
-} from "@/app/api/job-estimates/shared-web-pricing";
-import {
-  sharedUnitConsistencyNotes,
-} from "@/app/api/job-estimates/shared-unit-consistency";
+import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
+import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
+import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
 
-type FlooringDraftRequestBody = {
+type InteriorDoorsDraftRequestBody = {
   estimate: {
     id: number;
     projectName: string;
@@ -26,11 +18,23 @@ type FlooringDraftRequestBody = {
     foundationType?: string;
     superstructureType?: string;
   };
-  rows: Array<{
-    sourceRowId: number;
+  areaTakeoffs: Array<{
     roomType: string;
     areaSqft: number;
     floorFinish: string;
+  }>;
+  finishes?: Array<{
+    finishType?: string;
+    description?: string;
+  }>;
+  openings: Array<{
+    sourceRowId: number;
+    openingName: string;
+    heightMm: number;
+    widthMm: number;
+    quantity: number;
+    totalAreaSqft: number;
+    description: string;
   }>;
 };
 
@@ -59,26 +63,23 @@ export async function POST(request: Request) {
     );
   }
 
-  let body: FlooringDraftRequestBody;
+  let body: InteriorDoorsDraftRequestBody;
 
   try {
-    body = (await request.json()) as FlooringDraftRequestBody;
+    body = (await request.json()) as InteriorDoorsDraftRequestBody;
   } catch {
-    return NextResponse.json(
-      { error: "Invalid request body." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  if (!Array.isArray(body.rows) || body.rows.length === 0) {
+  if (!Array.isArray(body.openings) || body.openings.length === 0) {
     return NextResponse.json(
-      { error: "At least one flooring source row is required." },
+      { error: "At least one door opening row is required." },
       { status: 400 }
     );
   }
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
-    searchTerms: ["flooring", "tile", "vitrified", "granite", "marble", "stone", "adhesive", "grout"],
+    searchTerms: ["door", "door shutter", "door frame", "flush door", "hardware", "lock", "latch", "hinge"],
     targetUnits: ["sq.ft", "sq.m"],
   });
   const webPricingContext = await buildWebPricingContext({
@@ -86,7 +87,7 @@ export async function POST(request: Request) {
     dsrReferenceRates,
     targetUnits: ["sq.ft", "sq.m"],
     targetUnitLabel: "INR per sq.ft",
-    itemName: "Flooring",
+    itemName: "Interior Doors",
     projectName: body.estimate.projectName,
     projectType: body.estimate.projectType,
     location: {
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
       state: body.projectDetails?.state,
       country: body.projectDetails?.country,
     },
-    searchTerms: ["flooring", "tile", "vitrified", "granite", "marble", "stone", "adhesive", "grout"],
+    searchTerms: ["door", "door shutter", "door frame", "flush door", "hardware", "lock", "latch", "hinge"],
   });
 
   const promptPayload = {
@@ -109,24 +110,28 @@ export async function POST(request: Request) {
       superstructureType: body.projectDetails?.superstructureType ?? "",
     },
     costingContext: {
-      item: "Flooring",
-      costCode: "C3024",
+      item: "Interior Doors",
+      costCode: "C1021",
       currency: "INR",
       pricingBasis: "Conceptual estimate for bidding review",
       notes: [
-        "Return realistic draft rates per sq.ft for material, labour, and equipment.",
-        "Equipment may be 0 when clearly not applicable.",
-        "Use flooring scope only; do not include unrelated civil or structural work.",
+        "Use the supplied door opening rows as the quantity basis. Do not predict quantity or area; use each row's provided totalAreaSqft directly.",
+        "Estimate realistic per-sq.ft material, labour, and equipment costs in INR for interior doors only.",
+        "Material cost per sq.ft must include the door frame, shutter/actual door leaf, hardware such as lock, latch, hinges, handles, fasteners, and clearly necessary accessories.",
+        "Labour cost per sq.ft must include frame fixing, shutter installation, hardware fixing, alignment, finishing touches required for installation, and related door installation labour.",
+        "Equipment cost per sq.ft may include clearly applicable installation tools or small equipment, and may be 0 when not materially relevant.",
+        "If the opening description suggests a specific door type, size class, or quality level, use it. If not, make a practical best-fit assumption for an interior door based on project type and location.",
         "Assume Indian construction context.",
         ...buildDsrPromptNotes("INR per sq.ft"),
         ...buildPricingFallbackPromptNotes("INR per sq.ft"),
         ...sharedUnitConsistencyNotes,
-        "Be conservative and practical rather than aggressive.",
       ],
     },
     dsrReferenceRates,
     webPricingContext,
-    rows: body.rows,
+    areaTakeoffs: body.areaTakeoffs,
+    finishInputs: body.finishes ?? [],
+    doorOpenings: body.openings,
   };
 
   let openAiResponse: Response;
@@ -146,7 +151,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual flooring cost draft for estimator review. Use the project context and each room's floor finish description to estimate practical per-sq.ft material, labour, and equipment costs in INR. Keep assumptions short and specific. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual interior door cost draft for estimator review. Use the project details, area takeoffs, finishes, and provided door opening rows to estimate practical per-sq.ft material, labour, and equipment costs in INR. Do not estimate quantities; use the supplied totalAreaSqft for each row. Include frame, shutter, and door hardware in material cost. Keep assumptions short and specific. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",
@@ -156,7 +161,7 @@ export async function POST(request: Request) {
       response_format: {
         type: "json_schema",
         json_schema: {
-          name: "flooring_cost_draft",
+          name: "interior_doors_cost_draft",
           strict: true,
           schema: {
             type: "object",
@@ -169,7 +174,7 @@ export async function POST(request: Request) {
                   additionalProperties: false,
                   properties: {
                     sourceRowId: { type: "integer" },
-                    assumedFinishSystem: { type: "string" },
+                    assumedDoorSystem: { type: "string" },
                     materialCostPerSqft: { type: "number" },
                     labourCostPerSqft: { type: "number" },
                     equipmentCostPerSqft: { type: "number" },
@@ -181,7 +186,7 @@ export async function POST(request: Request) {
                   },
                   required: [
                     "sourceRowId",
-                    "assumedFinishSystem",
+                    "assumedDoorSystem",
                     "materialCostPerSqft",
                     "labourCostPerSqft",
                     "equipmentCostPerSqft",
@@ -201,13 +206,13 @@ export async function POST(request: Request) {
     responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
   } catch (error) {
     console.error(
-      "Failed to read the OpenAI response for flooring draft:",
+      "Failed to read the OpenAI response for interior doors draft:",
       error
     );
     return NextResponse.json(
       {
         error:
-          "OpenAI returned an unreadable response while generating flooring draft.",
+          "OpenAI returned an unreadable response while generating interior doors draft.",
       },
       { status: 502 }
     );
@@ -217,7 +222,8 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         error:
-          responseJson.error?.message ?? "OpenAI request failed while generating flooring draft.",
+          responseJson.error?.message ??
+          "OpenAI request failed while generating interior doors draft.",
       },
       { status: openAiResponse.status }
     );
@@ -226,10 +232,7 @@ export async function POST(request: Request) {
   const message = responseJson.choices?.[0]?.message;
 
   if (message?.refusal) {
-    return NextResponse.json(
-      { error: message.refusal },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: message.refusal }, { status: 400 });
   }
 
   const content = message?.content;
@@ -245,7 +248,7 @@ export async function POST(request: Request) {
     const parsed = JSON.parse(content) as {
       rows: Array<{
         sourceRowId: number;
-        assumedFinishSystem: string;
+        assumedDoorSystem: string;
         materialCostPerSqft: number;
         labourCostPerSqft: number;
         equipmentCostPerSqft: number;
@@ -257,14 +260,11 @@ export async function POST(request: Request) {
     return NextResponse.json(parsed);
   } catch {
     return NextResponse.json(
-      { error: "Failed to parse the AI flooring draft response." },
+      { error: "Failed to parse the AI interior doors draft response." },
       { status: 500 }
     );
   }
 }
-
-
-
 
 
 

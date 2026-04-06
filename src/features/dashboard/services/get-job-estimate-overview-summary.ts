@@ -1,4 +1,4 @@
-﻿import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import type {
   JobEstimateOverviewSummaryItem,
   JobEstimateDetailedItemRecord,
@@ -34,7 +34,7 @@ export async function getJobEstimateOverviewSummary(
     await Promise.all([
       supabase
         .from("job_estimate_detailed_item_rows")
-        .select("detailed_item_id, quantity, unit, row_total")
+        .select("detailed_item_id, quantity, quantity_per_gfa, unit, row_total")
         .in("detailed_item_id", detailedItemIds),
       supabase
         .from("cost_code_database")
@@ -54,7 +54,7 @@ export async function getJobEstimateOverviewSummary(
 
   ((rowData ?? []) as Pick<
     JobEstimateDetailedItemRowRecord,
-    "detailed_item_id" | "quantity" | "unit" | "row_total"
+    "detailed_item_id" | "quantity" | "quantity_per_gfa" | "unit" | "row_total"
   >[]).forEach((row) => {
     const existingRows = rowsByDetailedItemId.get(row.detailed_item_id) ?? [];
     existingRows.push(row as JobEstimateDetailedItemRowRecord);
@@ -77,6 +77,10 @@ export async function getJobEstimateOverviewSummary(
       (sum, row) => sum + (row.quantity ?? 0),
       0
     );
+    const totalQuantityPerGfa = savedRows.reduce(
+      (sum, row) => sum + (row.quantity_per_gfa ?? 0),
+      0
+    );
     const totalCost = savedRows.reduce(
       (sum, row) => sum + (row.row_total ?? 0),
       0
@@ -87,8 +91,11 @@ export async function getJobEstimateOverviewSummary(
       category: categoryByCostCode.get(itemRow.cost_code) ?? "Uncategorized",
       item: itemRow.item_name,
       quantity: totalQuantity,
+      quantityPerGfa: totalQuantityPerGfa,
       unit: savedRows[0]?.unit?.trim() || itemRow.unit || "",
       cost: totalCost,
     };
   });
 }
+
+

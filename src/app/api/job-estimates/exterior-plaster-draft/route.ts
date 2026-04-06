@@ -1,6 +1,8 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
+import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
 
 type ExteriorPlasterDraftRequestBody = {
@@ -48,7 +50,7 @@ type OpenAIChatCompletionResponse = {
 };
 
 const openAiUrl = "https://api.openai.com/v1/chat/completions";
-const model = "gpt-5.4";
+const model = "gpt-5.4-nano";
 
 export async function POST(request: Request) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -82,6 +84,26 @@ export async function POST(request: Request) {
     superstructureFootprint: body.projectDetails?.superstructureFootprint,
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
+  });
+
+  const dsrReferenceRates = await fetchRelevantDsrRates({
+    searchTerms: ["exterior plaster", "external plaster", "cement plaster", "plaster"],
+    targetUnits: ["sq.ft", "sq.m"],
+  });
+  const webPricingContext = await buildWebPricingContext({
+    apiKey,
+    dsrReferenceRates,
+    targetUnits: ["sq.ft", "sq.m"],
+    targetUnitLabel: "INR per sq.ft",
+    itemName: "Exterior Plaster",
+    projectName: body.estimate.projectName,
+    projectType: body.estimate.projectType,
+    location: {
+      city: body.projectDetails?.city,
+      state: body.projectDetails?.state,
+      country: body.projectDetails?.country,
+    },
+    searchTerms: ["exterior plaster", "external plaster", "cement plaster", "plaster"],
   });
 
   const promptPayload = {
@@ -118,14 +140,22 @@ export async function POST(request: Request) {
         "Return practical conceptual rates per sq.ft for material, labour, and equipment.",
         "Equipment may be 0 when clearly not applicable.",
         "Assume Indian construction context.",
+        ...buildDsrPromptNotes("INR per sq.ft"),
+        ...buildPricingFallbackPromptNotes("INR per sq.ft"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    dsrReferenceRates,
+    webPricingContext,
     areaTakeoffs: body.areaTakeoffs,
     finishInputs: body.allFinishes ?? [],
   };
 
-  const openAiResponse = await fetch(openAiUrl, {
+  let openAiResponse: Response;
+  let responseJson: OpenAIChatCompletionResponse;
+
+  try {
+    openAiResponse = await fetch(openAiUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -138,7 +168,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual exterior plaster cost draft for estimator review. Use the project details, area takeoffs, and exterior plaster finish description when available. Do not estimate the total area directly. First infer a realistic exterior plaster area per GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final total area. Estimate a realistic total exterior plaster area in sq.ft, practical per-sq.ft material, labour, and equipment costs in INR, and keep assumptions short and specific. Return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual exterior plaster cost draft for estimator review. Use the project details, area takeoffs, and exterior plaster finish description when available. Do not estimate the total area directly. First infer a realistic exterior plaster area per GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final total area. Estimate a realistic total exterior plaster area in sq.ft, practical per-sq.ft material, labour, and equipment costs in INR, and keep assumptions short and specific. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",
@@ -180,9 +210,22 @@ export async function POST(request: Request) {
         },
       },
     }),
-  });
+    });
 
-  const responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+    responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+  } catch (error) {
+    console.error(
+      "Failed to read the OpenAI response for exterior plaster draft:",
+      error
+    );
+    return NextResponse.json(
+      {
+        error:
+          "OpenAI returned an unreadable response while generating exterior plaster draft.",
+      },
+      { status: 502 }
+    );
+  }
 
   if (!openAiResponse.ok) {
     return NextResponse.json(
@@ -230,4 +273,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+
 

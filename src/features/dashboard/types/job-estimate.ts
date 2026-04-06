@@ -1,4 +1,4 @@
-﻿export type JobEstimateRecord = {
+export type JobEstimateRecord = {
   id: number;
   created_at: string;
   project_name: string;
@@ -128,6 +128,7 @@ export type JobEstimateDetailedItemRecord = {
   ai_generated_at: string | null;
   saved_by_id: string | null;
   saved_by_name: string | null;
+  gfa_snapshot: number | null;
 };
 
 export type JobEstimateDetailedItemRowRecord = {
@@ -138,6 +139,7 @@ export type JobEstimateDetailedItemRowRecord = {
   row_key: string;
   row_label: string;
   quantity: number | null;
+  quantity_per_gfa: number | null;
   unit: string | null;
   material_cost_per_unit: number | null;
   labour_cost_per_unit: number | null;
@@ -164,6 +166,7 @@ export type JobEstimateDetailedItem = {
   aiGeneratedAt: string | null;
   savedById: string | null;
   savedByName: string;
+  gfaSnapshot: number;
 };
 
 export type JobEstimateDetailedItemRow = {
@@ -174,6 +177,7 @@ export type JobEstimateDetailedItemRow = {
   rowKey: string;
   rowLabel: string;
   quantity: number;
+  quantityPerGfa: number;
   unit: string;
   materialCostPerUnit: number;
   labourCostPerUnit: number;
@@ -196,6 +200,7 @@ export type SaveJobEstimateDetailedItemRowInput = {
   rowKey: string;
   rowLabel: string;
   quantity: number;
+  quantityPerGfa: number;
   unit: string;
   materialCostPerUnit: number;
   labourCostPerUnit: number;
@@ -214,6 +219,7 @@ export type SaveJobEstimateDetailedItemInput = {
   costCode: string;
   itemName: string;
   unit: string;
+  gfaSnapshot: number;
   saveStatus?: string;
   sourceType?: string;
   aiGeneratedAt?: string | null;
@@ -227,6 +233,37 @@ export type JobEstimateOverviewSummaryItem = {
   category: string;
   item: string;
   quantity: number;
+  quantityPerGfa: number;
   unit: string;
   cost: number;
+};
+
+export type JobEstimateOpeningType = "Door" | "Window" | "Ventilator" | "Facade";
+
+export type JobEstimateOpeningRecord = {
+  id: number;
+  created_at: string;
+  job_estimate_id: number;
+  opening_type: string;
+  opening_name: string | null;
+  height: number | null;
+  width: number | null;
+  unit: string | null;
+  quantity: number | null;
+  description: string | null;
+  sort_order: number | null;
+};
+
+export type JobEstimateOpening = {
+  id: number;
+  createdAt: string;
+  jobEstimateId: number;
+  openingType: JobEstimateOpeningType;
+  openingName: string;
+  height: string;
+  width: string;
+  unit: string;
+  quantity: string;
+  description: string;
+  sortOrder: number;
 };

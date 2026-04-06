@@ -12,8 +12,9 @@ import {
 } from "@/features/auth/services/get-current-user-profile";
 import { JobEstimateAreaTakeoffsPanel } from "@/features/dashboard/components/job-estimate-area-takeoffs-panel";
 import { JobEstimateDetailedEstimatePanel } from "@/features/dashboard/components/job-estimate-detailed-estimate-panel";
-import { JobEstimateOverviewPanel } from "@/features/dashboard/components/job-estimate-overview-panel";
 import { JobEstimateFinishesPanel } from "@/features/dashboard/components/job-estimate-finishes-panel";
+import { JobEstimateOpeningsPanel } from "@/features/dashboard/components/job-estimate-openings-panel";
+import { JobEstimateOverviewPanel } from "@/features/dashboard/components/job-estimate-overview-panel";
 import { JobEstimateProjectDetailsPanel } from "@/features/dashboard/components/job-estimate-project-details-panel";
 import { getJobEstimateById } from "@/features/dashboard/services/get-job-estimate-by-id";
 import type { JobEstimate } from "@/features/dashboard/types/job-estimate";
@@ -23,6 +24,7 @@ type JobEstimateWorkspaceTab =
   | "project-details"
   | "area-takeoffs"
   | "finishes"
+  | "opening"
   | "detailed-job-estimate";
 
 type JobEstimateSidebarProps = {
@@ -42,6 +44,7 @@ const tabs: { key: JobEstimateWorkspaceTab; label: string }[] = [
   { key: "project-details", label: "Project Details" },
   { key: "area-takeoffs", label: "Area Takeoffs" },
   { key: "finishes", label: "Finishes" },
+  { key: "opening", label: "Openings" },
   { key: "detailed-job-estimate", label: "Detailed Job Estimate" },
 ];
 
@@ -56,7 +59,7 @@ export default function JobEstimateWorkspacePage() {
   const [estimate, setEstimate] = useState<JobEstimate | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<JobEstimateWorkspaceTab>(
-    "project-details"
+    "overview"
   );
 
   useEffect(() => {
@@ -124,6 +127,8 @@ export default function JobEstimateWorkspacePage() {
         return <JobEstimateAreaTakeoffsPanel estimate={estimate} />;
       case "finishes":
         return <JobEstimateFinishesPanel estimate={estimate} />;
+      case "opening":
+        return <JobEstimateOpeningsPanel estimate={estimate} />;
       case "detailed-job-estimate":
         return (
           <JobEstimateDetailedEstimatePanel

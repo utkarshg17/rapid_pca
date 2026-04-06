@@ -1,9 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
+import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { getPlumbingPipeCostCodeHierarchy } from "@/features/dashboard/services/get-plumbing-pipe-cost-code-hierarchy";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
@@ -40,6 +44,7 @@ type JobEstimatePlumbingPipeEstimateBranchProps = {
   onTotalChange?: (total: number) => void;
   savedById: string | null;
   savedByName: string;
+  registerBulkGenerate?: RegisterBulkGenerateDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -98,6 +103,7 @@ export function JobEstimatePlumbingPipeEstimateBranch({
   onTotalChange,
   savedById,
   savedByName,
+  registerBulkGenerate,
 }: JobEstimatePlumbingPipeEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
@@ -192,9 +198,25 @@ export function JobEstimatePlumbingPipeEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRow), [reviewRow]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  const handleBulkGenerateDraft = useEffectEvent(async () => {
+    await handleGenerateDraft();
+  });
+
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
+
+  useEffect(() => {
+    if (!registerBulkGenerate) {
+      return;
+    }
+
+    registerBulkGenerate(() => handleBulkGenerateDraft());
+
+    return () => {
+      registerBulkGenerate(null);
+    };
+  }, [registerBulkGenerate]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -207,6 +229,7 @@ export function JobEstimatePlumbingPipeEstimateBranch({
         costCode: "D2024",
         itemName: "Plumbing Pipe",
         unit: "LF",
+        gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
         sourceType: "ai_edited",
         savedById,
@@ -216,7 +239,8 @@ export function JobEstimatePlumbingPipeEstimateBranch({
             rowKey: "d2024-main",
             rowLabel: "Plumbing Pipe",
             quantity: parseOptionalNumber(reviewRow.quantity),
-            unit: "LF",
+          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(reviewRow.quantity), grossFloorArea),
+          unit: "LF",
             materialCostPerUnit: parseOptionalNumber(reviewRow.materialCostPerUnit),
             labourCostPerUnit: parseOptionalNumber(reviewRow.labourCostPerUnit),
             equipmentCostPerUnit: parseOptionalNumber(reviewRow.equipmentCostPerUnit),
@@ -291,26 +315,20 @@ export function JobEstimatePlumbingPipeEstimateBranch({
         }),
       });
 
-      const payload = (await response.json()) as
-        | {
-            item?: string;
-            quantity?: number;
-            unit?: "LF";
-            assumedSystem?: string;
-            materialCostPerUnit?: number;
-            labourCostPerUnit?: number;
-            equipmentCostPerUnit?: number;
-            assumptions?: string;
-            confidence?: "low" | "medium" | "high";
-            error?: string;
-          }
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(
-          payload?.error || "Failed to generate plumbing pipe draft."
-        );
-      }
+      const payload = await parseDraftResponse<
+        {
+          item?: string;
+          quantity?: number;
+          unit?: "LF";
+          assumedSystem?: string;
+          materialCostPerUnit?: number;
+          labourCostPerUnit?: number;
+          equipmentCostPerUnit?: number;
+          assumptions?: string;
+          confidence?: "low" | "medium" | "high";
+          error?: string;
+        }
+      >(response, "Failed to generate plumbing pipe draft.");
 
       setReviewRow((previousRow) => ({
         ...previousRow,
@@ -478,6 +496,9 @@ export function JobEstimatePlumbingPipeEstimateBranch({
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                          Quantity/GFA
+                        </th>
+                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Quantity (LF)
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -488,11 +509,9 @@ export function JobEstimatePlumbingPipeEstimateBranch({
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Equipment / LF
-                        </th>
-                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        </th><th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Total / LF
-                        </th>
-                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        </th><th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Row Total
                         </th>
                         <th className="w-[15rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -510,6 +529,19 @@ export function JobEstimatePlumbingPipeEstimateBranch({
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                             {reviewRow.assumptions}
                           </p>
+                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap">
+                          <JobEstimateRatioInput
+                            quantityValue={reviewRow.quantity}
+                            grossFloorArea={grossFloorArea}
+                            onQuantityChange={(value) =>
+                              setReviewRow((previousRow) => ({
+                                ...previousRow,
+                                quantity: value,
+                              }))
+                            }
+                            className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
+                          />
                         </td>
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <Input
@@ -576,7 +608,7 @@ export function JobEstimatePlumbingPipeEstimateBranch({
                     </tbody>
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
-                        <td className="px-3 py-3 font-semibold" colSpan={6}>
+                        <td className="px-3 py-3 font-semibold" colSpan={7}>
                           Plumbing Pipe Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
@@ -714,6 +746,14 @@ function createSignature(row: PlumbingPipeReviewRow) {
     status: row.status,
   });
 }
+
+
+
+
+
+
+
+
 
 
 

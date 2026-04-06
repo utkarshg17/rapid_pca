@@ -1,9 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
+import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
@@ -40,6 +44,7 @@ type JobEstimateInteriorPaintEstimateBranchProps = {
   onTotalChange?: (total: number) => void;
   savedById: string | null;
   savedByName: string;
+  registerBulkGenerate?: RegisterBulkGenerateDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -98,6 +103,7 @@ export function JobEstimateInteriorPaintEstimateBranch({
   onTotalChange,
   savedById,
   savedByName,
+  registerBulkGenerate,
 }: JobEstimateInteriorPaintEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
@@ -212,9 +218,25 @@ export function JobEstimateInteriorPaintEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRow), [reviewRow]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  const handleBulkGenerateDraft = useEffectEvent(async () => {
+    await handleGenerateDraft();
+  });
+
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
+
+  useEffect(() => {
+    if (!registerBulkGenerate) {
+      return;
+    }
+
+    registerBulkGenerate(() => handleBulkGenerateDraft());
+
+    return () => {
+      registerBulkGenerate(null);
+    };
+  }, [registerBulkGenerate]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -227,6 +249,7 @@ export function JobEstimateInteriorPaintEstimateBranch({
         costCode: "C3015",
         itemName: "Interior Paint",
         unit: "sq.ft",
+        gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
         sourceType: "ai_edited",
         savedById,
@@ -236,7 +259,8 @@ export function JobEstimateInteriorPaintEstimateBranch({
             rowKey: "c3015-main",
             rowLabel: "Interior Paint",
             quantity: parseOptionalNumber(reviewRow.area),
-            unit: "sq.ft",
+          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(reviewRow.area), grossFloorArea),
+          unit: "sq.ft",
             materialCostPerUnit: parseOptionalNumber(reviewRow.materialCostPerSqft),
             labourCostPerUnit: parseOptionalNumber(reviewRow.labourCostPerSqft),
             equipmentCostPerUnit: parseOptionalNumber(reviewRow.equipmentCostPerSqft),
@@ -312,25 +336,19 @@ export function JobEstimateInteriorPaintEstimateBranch({
         }),
       });
 
-      const payload = (await response.json()) as
-        | {
-            item?: string;
-            areaSqft?: number;
-            assumedFinishSystem?: string;
-            materialCostPerSqft?: number;
-            labourCostPerSqft?: number;
-            equipmentCostPerSqft?: number;
-            assumptions?: string;
-            confidence?: "low" | "medium" | "high";
-            error?: string;
-          }
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(
-          payload?.error || "Failed to generate interior paint draft."
-        );
-      }
+      const payload = await parseDraftResponse<
+        {
+          item?: string;
+          areaSqft?: number;
+          assumedFinishSystem?: string;
+          materialCostPerSqft?: number;
+          labourCostPerSqft?: number;
+          equipmentCostPerSqft?: number;
+          assumptions?: string;
+          confidence?: "low" | "medium" | "high";
+          error?: string;
+        }
+      >(response, "Failed to generate interior paint draft.");
 
       setReviewRow((previousRow) => ({
         ...previousRow,
@@ -494,6 +512,9 @@ export function JobEstimateInteriorPaintEstimateBranch({
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                          Quantity/GFA
+                        </th>
+                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Area
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -531,6 +552,14 @@ export function JobEstimateInteriorPaintEstimateBranch({
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                             {reviewRow.assumptions}
                           </p>
+                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap">
+                          <JobEstimateRatioInput
+                            quantityValue={reviewRow.area}
+                            grossFloorArea={grossFloorArea}
+                            onQuantityChange={(value) => handleRowChange("area", value)}
+                            className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
+                          />
                         </td>
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <Input
@@ -597,7 +626,7 @@ export function JobEstimateInteriorPaintEstimateBranch({
                     </tbody>
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
-                        <td className="px-3 py-3 font-semibold" colSpan={6}>
+                        <td className="px-3 py-3 font-semibold" colSpan={7}>
                           Interior Paint Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
@@ -749,6 +778,11 @@ function createSignature(row: InteriorPaintReviewRow) {
     status: row.status,
   });
 }
+
+
+
+
+
 
 
 

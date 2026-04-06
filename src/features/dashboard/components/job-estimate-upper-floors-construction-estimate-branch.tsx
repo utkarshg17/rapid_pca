@@ -1,9 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
+import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
@@ -40,6 +44,7 @@ type JobEstimateUpperFloorsConstructionEstimateBranchProps = {
   onTotalChange?: (total: number) => void;
   savedById: string | null;
   savedByName: string;
+  registerBulkGenerate?: RegisterBulkGenerateDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -98,6 +103,7 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
   onTotalChange,
   savedById,
   savedByName,
+  registerBulkGenerate,
 }: JobEstimateUpperFloorsConstructionEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
@@ -197,6 +203,10 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
   );
   const currentSignature = useMemo(() => createSignature(reviewRow), [reviewRow]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
+
+  const handleBulkGenerateDraft = useEffectEvent(async () => {
+    await handleGenerateDraft();
+  });
   const quantityHeader = `Quantity (${reviewRow.unit})`;
   const materialHeader = `Material / ${reviewRow.unit}`;
   const labourHeader = `Labour / ${reviewRow.unit}`;
@@ -206,6 +216,18 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
+
+  useEffect(() => {
+    if (!registerBulkGenerate) {
+      return;
+    }
+
+    registerBulkGenerate(() => handleBulkGenerateDraft());
+
+    return () => {
+      registerBulkGenerate(null);
+    };
+  }, [registerBulkGenerate]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -218,6 +240,7 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
         costCode: "B1012",
         itemName: "Upper Floors Construction (Slab + Beam)",
         unit: reviewRow.unit,
+        gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
         sourceType: "ai_edited",
         savedById,
@@ -227,7 +250,8 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
             rowKey: "b1012-main",
             rowLabel: "Upper Floors Construction (Slab + Beam)",
             quantity: parseOptionalNumber(reviewRow.quantity),
-            unit: reviewRow.unit,
+          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(reviewRow.quantity), grossFloorArea),
+          unit: reviewRow.unit,
             materialCostPerUnit: parseOptionalNumber(reviewRow.materialCostPerUnit),
             labourCostPerUnit: parseOptionalNumber(reviewRow.labourCostPerUnit),
             equipmentCostPerUnit: parseOptionalNumber(reviewRow.equipmentCostPerUnit),
@@ -305,27 +329,20 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
         }
       );
 
-      const payload = (await response.json()) as
-        | {
-            item?: string;
-            quantity?: number;
-            unit?: "cu.m" | "ton";
-            assumedSystem?: string;
-            materialCostPerUnit?: number;
-            labourCostPerUnit?: number;
-            equipmentCostPerUnit?: number;
-            assumptions?: string;
-            confidence?: "low" | "medium" | "high";
-            error?: string;
-          }
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(
-          payload?.error ||
-            "Failed to generate upper floors construction draft."
-        );
-      }
+      const payload = await parseDraftResponse<
+        {
+          item?: string;
+          quantity?: number;
+          unit?: "cu.m" | "ton";
+          assumedSystem?: string;
+          materialCostPerUnit?: number;
+          labourCostPerUnit?: number;
+          equipmentCostPerUnit?: number;
+          assumptions?: string;
+          confidence?: "low" | "medium" | "high";
+          error?: string;
+        }
+      >(response, "Failed to generate upper floors construction draft.");
 
       setReviewRow((previousRow) => ({
         ...previousRow,
@@ -494,6 +511,9 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                          Quantity/GFA
+                        </th>
+                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           {quantityHeader}
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -504,11 +524,9 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
                         </th>
                         <th className="w-[10rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           {equipmentHeader}
-                        </th>
-                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        </th><th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           {totalHeader}
-                        </th>
-                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        </th><th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Row Total
                         </th>
                         <th className="w-[15rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -526,6 +544,19 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                             {reviewRow.assumptions}
                           </p>
+                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap">
+                          <JobEstimateRatioInput
+                            quantityValue={reviewRow.quantity}
+                            grossFloorArea={grossFloorArea}
+                            onQuantityChange={(value) =>
+                              setReviewRow((previousRow) => ({
+                                ...previousRow,
+                                quantity: value,
+                              }))
+                            }
+                            className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
+                          />
                         </td>
                         <td className="px-3 py-3 align-top whitespace-nowrap">
                           <Input
@@ -595,7 +626,7 @@ export function JobEstimateUpperFloorsConstructionEstimateBranch({
                     </tbody>
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
-                        <td className="px-3 py-3 font-semibold" colSpan={6}>
+                        <td className="px-3 py-3 font-semibold" colSpan={7}>
                           Upper Floors Construction Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
@@ -741,5 +772,13 @@ function createSignature(row: UpperFloorsConstructionReviewRow) {
     status: row.status,
   });
 }
+
+
+
+
+
+
+
+
 
 

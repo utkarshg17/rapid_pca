@@ -1,9 +1,13 @@
-﻿"use client";
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
+import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
@@ -39,6 +43,7 @@ type JobEstimateFlooringEstimateBranchProps = {
   onTotalChange?: (total: number) => void;
   savedById: string | null;
   savedByName: string;
+  registerBulkGenerate?: RegisterBulkGenerateDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -84,6 +89,7 @@ export function JobEstimateFlooringEstimateBranch({
   onTotalChange,
   savedById,
   savedByName,
+  registerBulkGenerate,
 }: JobEstimateFlooringEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [projectDetails, setProjectDetails] =
@@ -180,9 +186,25 @@ export function JobEstimateFlooringEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRows), [reviewRows]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  const handleBulkGenerateDraft = useEffectEvent(async () => {
+    await handleGenerateDraft();
+  });
+
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
+
+  useEffect(() => {
+    if (!registerBulkGenerate) {
+      return;
+    }
+
+    registerBulkGenerate(() => handleBulkGenerateDraft());
+
+    return () => {
+      registerBulkGenerate(null);
+    };
+  }, [registerBulkGenerate]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -195,6 +217,7 @@ export function JobEstimateFlooringEstimateBranch({
         costCode: "C3024",
         itemName: "Flooring",
         unit: "sq.ft",
+        gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
         sourceType: "ai_edited",
         savedById,
@@ -203,6 +226,7 @@ export function JobEstimateFlooringEstimateBranch({
           rowKey: `flooring-${row.id}`,
           rowLabel: row.roomType,
           quantity: parseOptionalNumber(row.area),
+          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(row.area), grossFloorArea),
           unit: "sq.ft",
           materialCostPerUnit: parseOptionalNumber(row.materialCostPerSqft),
           labourCostPerUnit: parseOptionalNumber(row.labourCostPerSqft),
@@ -268,24 +292,20 @@ export function JobEstimateFlooringEstimateBranch({
         }),
       });
 
-      const payload = (await response.json()) as
-        | {
-            rows?: Array<{
-              sourceRowId: number;
-              assumedFinishSystem: string;
-              materialCostPerSqft: number;
-              labourCostPerSqft: number;
-              equipmentCostPerSqft: number;
-              assumptions: string;
-              confidence: "low" | "medium" | "high";
-            }>;
-            error?: string;
-          }
-        | undefined;
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to generate flooring draft.");
-      }
+      const payload = await parseDraftResponse<
+        {
+          rows?: Array<{
+            sourceRowId: number;
+            assumedFinishSystem: string;
+            materialCostPerSqft: number;
+            labourCostPerSqft: number;
+            equipmentCostPerSqft: number;
+            assumptions: string;
+            confidence: "low" | "medium" | "high";
+          }>;
+          error?: string;
+        }
+      >(response, "Failed to generate flooring draft.");
 
       const generatedRows = payload?.rows ?? [];
 
@@ -336,7 +356,7 @@ export function JobEstimateFlooringEstimateBranch({
     rowId: number,
     key: keyof Pick<
       FlooringReviewRow,
-      "materialCostPerSqft" | "labourCostPerSqft" | "equipmentCostPerSqft"
+      "area" | "materialCostPerSqft" | "labourCostPerSqft" | "equipmentCostPerSqft"
     >,
     value: string
   ) {
@@ -460,6 +480,9 @@ export function JobEstimateFlooringEstimateBranch({
                         <th className="w-[28rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Room Type
                         </th>
+                        <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                          Quantity/GFA
+                        </th>
                         <th className="w-[8rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Area
                         </th>
@@ -495,6 +518,16 @@ export function JobEstimateFlooringEstimateBranch({
                               <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                                 {row.assumptions}
                               </p>
+                            </td>
+                            <td className="px-3 py-3 align-top whitespace-nowrap">
+                              <JobEstimateRatioInput
+                                quantityValue={row.area}
+                                grossFloorArea={grossFloorArea}
+                                onQuantityChange={(value) =>
+                                  handleCostChange(row.id, "area", value)
+                                }
+                                className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
+                              />
                             </td>
                             <td className="px-3 py-3 align-top whitespace-nowrap text-[var(--muted)]">
                               {formatArea(parseOptionalNumber(row.area))} sq.ft
@@ -560,7 +593,7 @@ export function JobEstimateFlooringEstimateBranch({
                       ) : (
                         <tr>
                           <td
-                            colSpan={8}
+                            colSpan={9}
                             className="px-3 py-6 text-center text-sm text-[var(--muted)]"
                           >
                             Once the user has area takeoff rows for flooring, this
@@ -572,7 +605,7 @@ export function JobEstimateFlooringEstimateBranch({
                     {reviewRows.length > 0 ? (
                       <tfoot>
                         <tr className="bg-[var(--surface)]">
-                          <td className="px-3 py-3 font-semibold" colSpan={6}>
+                          <td className="px-3 py-3 font-semibold" colSpan={7}>
                             Flooring Branch Total
                           </td>
                           <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
@@ -684,7 +717,7 @@ function buildReviewRows(
     return {
       id: row.id,
       roomType: row.roomType || savedRow?.rowLabel || "Untitled room",
-      area: row.area || formatArea(savedRow?.quantity ?? 0),
+      area: savedRow != null ? formatArea(savedRow.quantity) : (existingRow?.area || row.area),
       floorFinish: row.floorFinish || "Pending floor finish description",
       assumedFinishSystem:
         savedRow?.assumedSystem ||
@@ -734,5 +767,13 @@ function createSignature(rows: FlooringReviewRow[]) {
     }))
   );
 }
+
+
+
+
+
+
+
+
 
 

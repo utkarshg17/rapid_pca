@@ -1,4 +1,4 @@
-﻿import { supabase } from "@/lib/supabase/client";
+import { supabase } from "@/lib/supabase/client";
 import type {
   JobEstimateDetailedItemRecord,
   JobEstimateDetailedItemRowRecord,
@@ -57,6 +57,7 @@ function mapDetailedItemRecord(row: JobEstimateDetailedItemRecord) {
     aiGeneratedAt: row.ai_generated_at,
     savedById: row.saved_by_id,
     savedByName: row.saved_by_name ?? "",
+    gfaSnapshot: row.gfa_snapshot ?? 0,
   };
 }
 
@@ -69,6 +70,7 @@ function mapDetailedItemRowRecord(row: JobEstimateDetailedItemRowRecord) {
     rowKey: row.row_key,
     rowLabel: row.row_label,
     quantity: row.quantity ?? 0,
+    quantityPerGfa: row.quantity_per_gfa ?? 0,
     unit: row.unit ?? "",
     materialCostPerUnit: row.material_cost_per_unit ?? 0,
     labourCostPerUnit: row.labour_cost_per_unit ?? 0,

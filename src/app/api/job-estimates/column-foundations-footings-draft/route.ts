@@ -1,6 +1,8 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
+import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
 
 type ColumnFoundationsFootingsDraftRequestBody = {
@@ -47,7 +49,7 @@ type OpenAIChatCompletionResponse = {
 };
 
 const openAiUrl = "https://api.openai.com/v1/chat/completions";
-const model = "gpt-5.4";
+const model = "gpt-5.4-nano";
 const applicableFoundationTypes = new Set([
   "isolated footing",
   "isolated footing + combined footing",
@@ -106,6 +108,26 @@ export async function POST(request: Request) {
     floorCount: body.projectDetails?.floorCount,
   });
 
+  const dsrReferenceRates = await fetchRelevantDsrRates({
+    searchTerms: ["footing", "foundation", "concrete", "rcc", "reinforcement", "formwork", "shuttering"],
+    targetUnits: ["cu.m", "cum", "m3"],
+  });
+  const webPricingContext = await buildWebPricingContext({
+    apiKey,
+    dsrReferenceRates,
+    targetUnits: ["cu.m", "cum", "m3"],
+    targetUnitLabel: "INR per cu.m",
+    itemName: "Column Foundations + Footings",
+    projectName: body.estimate.projectName,
+    projectType: body.estimate.projectType,
+    location: {
+      city: body.projectDetails?.city,
+      state: body.projectDetails?.state,
+      country: body.projectDetails?.country,
+    },
+    searchTerms: ["footing", "foundation", "concrete", "rcc", "reinforcement", "formwork", "shuttering"],
+  });
+
   const promptPayload = {
     estimate: {
       projectName: body.estimate.projectName,
@@ -145,14 +167,22 @@ export async function POST(request: Request) {
         "Equipment cost per cu.m may include vibrator usage and any small foundation concreting equipment that is clearly applicable.",
         "Return practical conceptual costs in INR per cu.m.",
         "Assume Indian construction context.",
+        ...buildDsrPromptNotes("INR per cu.m"),
+        ...buildPricingFallbackPromptNotes("INR per cu.m"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    webPricingContext,
+    dsrReferenceRates,
     areaTakeoffs: body.areaTakeoffs,
     finishInputs: body.allFinishes ?? [],
   };
 
-  const openAiResponse = await fetch(openAiUrl, {
+  let openAiResponse: Response;
+  let responseJson: OpenAIChatCompletionResponse;
+
+  try {
+    openAiResponse = await fetch(openAiUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -165,7 +195,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Column Foundations + Footings. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project, floor range, and foundation system, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, cover blocks, and miscellaneous consumables. Labour cost must include steel binding, formwork setup, and concrete pouring labour. Return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Column Foundations + Footings. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project, floor range, and foundation system, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, cover blocks, and miscellaneous consumables. Labour cost must include steel binding, formwork setup, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",
@@ -207,9 +237,22 @@ export async function POST(request: Request) {
         },
       },
     }),
-  });
+    });
 
-  const responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+    responseJson = (await openAiResponse.json()) as OpenAIChatCompletionResponse;
+  } catch (error) {
+    console.error(
+      "Failed to read the OpenAI response for column foundations + footings draft:",
+      error
+    );
+    return NextResponse.json(
+      {
+        error:
+          "OpenAI returned an unreadable response while generating column foundations + footings draft.",
+      },
+      { status: 502 }
+    );
+  }
 
   if (!openAiResponse.ok) {
     return NextResponse.json(
@@ -260,4 +303,7 @@ export async function POST(request: Request) {
     );
   }
 }
+
+
+
 

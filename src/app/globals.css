@@ -99,3 +99,7 @@ textarea {
 }
 
 
+
+table :is(th, td) {
+  vertical-align: middle !important;
+}
