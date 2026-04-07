@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase/client";
+﻿import { supabase } from "@/lib/supabase/client";
 import type {
   JobEstimateOverviewSummaryItem,
   JobEstimateDetailedItemRecord,
@@ -34,7 +34,9 @@ export async function getJobEstimateOverviewSummary(
     await Promise.all([
       supabase
         .from("job_estimate_detailed_item_rows")
-        .select("detailed_item_id, quantity, quantity_per_gfa, unit, row_total")
+        .select(
+          "detailed_item_id, quantity, quantity_per_gfa, unit, material_cost_per_unit, labour_cost_per_unit, equipment_cost_per_unit, row_total"
+        )
         .in("detailed_item_id", detailedItemIds),
       supabase
         .from("cost_code_database")
@@ -54,7 +56,14 @@ export async function getJobEstimateOverviewSummary(
 
   ((rowData ?? []) as Pick<
     JobEstimateDetailedItemRowRecord,
-    "detailed_item_id" | "quantity" | "quantity_per_gfa" | "unit" | "row_total"
+    | "detailed_item_id"
+    | "quantity"
+    | "quantity_per_gfa"
+    | "unit"
+    | "material_cost_per_unit"
+    | "labour_cost_per_unit"
+    | "equipment_cost_per_unit"
+    | "row_total"
   >[]).forEach((row) => {
     const existingRows = rowsByDetailedItemId.get(row.detailed_item_id) ?? [];
     existingRows.push(row as JobEstimateDetailedItemRowRecord);
@@ -85,6 +94,21 @@ export async function getJobEstimateOverviewSummary(
       (sum, row) => sum + (row.row_total ?? 0),
       0
     );
+    const materialCostPerUnit = calculateWeightedRate(
+      savedRows,
+      "material_cost_per_unit",
+      totalQuantity
+    );
+    const labourCostPerUnit = calculateWeightedRate(
+      savedRows,
+      "labour_cost_per_unit",
+      totalQuantity
+    );
+    const equipmentCostPerUnit = calculateWeightedRate(
+      savedRows,
+      "equipment_cost_per_unit",
+      totalQuantity
+    );
 
     return {
       costCode: itemRow.cost_code,
@@ -93,9 +117,38 @@ export async function getJobEstimateOverviewSummary(
       quantity: totalQuantity,
       quantityPerGfa: totalQuantityPerGfa,
       unit: savedRows[0]?.unit?.trim() || itemRow.unit || "",
+      materialCostPerUnit,
+      labourCostPerUnit,
+      equipmentCostPerUnit,
       cost: totalCost,
     };
   });
 }
 
+function calculateWeightedRate(
+  rows: JobEstimateDetailedItemRowRecord[],
+  key:
+    | "material_cost_per_unit"
+    | "labour_cost_per_unit"
+    | "equipment_cost_per_unit",
+  totalQuantity: number
+) {
+  if (totalQuantity > 0) {
+    return (
+      rows.reduce(
+        (sum, row) => sum + (row.quantity ?? 0) * (row[key] ?? 0),
+        0
+      ) / totalQuantity
+    );
+  }
 
+  const rates = rows
+    .map((row) => row[key] ?? 0)
+    .filter((rate) => Number.isFinite(rate) && rate > 0);
+
+  if (rates.length === 0) {
+    return 0;
+  }
+
+  return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+}

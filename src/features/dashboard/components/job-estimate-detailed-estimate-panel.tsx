@@ -10,7 +10,18 @@ import {
 } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { JobEstimateBrickWorkEstimateBranch } from "@/features/dashboard/components/job-estimate-brick-work-estimate-branch";
 import { JobEstimateColumnFoundationsFootingsEstimateBranch } from "@/features/dashboard/components/job-estimate-column-foundations-footings-estimate-branch";
+import {
+  JobEstimateArchitecturalDesignEstimateBranch,
+  JobEstimateFireProtectionDesignEstimateBranch,
+  JobEstimateInteriorDesignServicesEstimateBranch,
+  JobEstimateMepEngineeringEstimateBranch,
+  JobEstimateStructuralEngineeringEstimateBranch,
+} from "@/features/dashboard/components/job-estimate-design-service-estimate-branch";
 import { JobEstimateElectricalCondutingEstimateBranch } from "@/features/dashboard/components/job-estimate-electrical-conduting-estimate-branch";
+import {
+  JobEstimateElectricalFixturesEstimateBranch,
+  JobEstimatePlumbingFixturesEstimateBranch,
+} from "@/features/dashboard/components/job-estimate-gfa-fixture-estimate-branch";
 import { JobEstimateRegularStairEstimateBranch } from "@/features/dashboard/components/job-estimate-regular-stair-estimate-branch";
 import { JobEstimatePlumbingPipeEstimateBranch } from "@/features/dashboard/components/job-estimate-plumbing-pipe-estimate-branch";
 import { JobEstimateExteriorPaintEstimateBranch } from "@/features/dashboard/components/job-estimate-exterior-paint-estimate-branch";
@@ -18,6 +29,7 @@ import { JobEstimateExteriorPlasterEstimateBranch } from "@/features/dashboard/c
 import { JobEstimateFlooringEstimateBranch } from "@/features/dashboard/components/job-estimate-flooring-estimate-branch";
 import { JobEstimateInteriorPaintEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-paint-estimate-branch";
 import { JobEstimateInteriorDoorsEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-doors-estimate-branch";
+import { JobEstimateInteriorWindowsEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-windows-estimate-branch";
 import { JobEstimateInteriorPlasterEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-plaster-estimate-branch";
 import { JobEstimateUpperFloorsConstructionEstimateBranch } from "@/features/dashboard/components/job-estimate-upper-floors-construction-estimate-branch";
 import { JobEstimateVerticalStructuralElementsEstimateBranch } from "@/features/dashboard/components/job-estimate-vertical-structural-elements-estimate-branch";
@@ -35,14 +47,22 @@ const initialBranchTotals = {
   verticalStructuralElements: 0,
   exteriorPlaster: 0,
   exteriorPaint: 0,
+  interiorWindows: 0,
   brickWork: 0,
   regularStair: 0,
   interiorDoors: 0,
   interiorPlaster: 0,
   interiorPaint: 0,
   flooring: 0,
+  plumbingFixtures: 0,
   plumbingPipe: 0,
   electricalConduting: 0,
+  electricalFixtures: 0,
+  architecturalDesign: 0,
+  interiorDesignServices: 0,
+  structuralEngineering: 0,
+  mepEngineering: 0,
+  fireProtectionDesign: 0,
 };
 
 type DetailedEstimateBranchKey = keyof typeof initialBranchTotals;
@@ -53,14 +73,22 @@ const detailedEstimateBranchOrder: DetailedEstimateBranchKey[] = [
   "verticalStructuralElements",
   "exteriorPlaster",
   "exteriorPaint",
+  "interiorWindows",
   "brickWork",
   "regularStair",
   "interiorDoors",
   "interiorPlaster",
   "interiorPaint",
   "flooring",
+  "plumbingFixtures",
   "plumbingPipe",
   "electricalConduting",
+  "electricalFixtures",
+  "architecturalDesign",
+  "interiorDesignServices",
+  "structuralEngineering",
+  "mepEngineering",
+  "fireProtectionDesign",
 ];
 
 export function JobEstimateDetailedEstimatePanel({
@@ -190,7 +218,7 @@ export function JobEstimateDetailedEstimatePanel({
               review. Right now the workspace includes separate draft branches
               for Column Foundations + Footings, Upper Floors Construction (Slab + Beam),
               Vertical Structural Elements, Exterior Plaster, Exterior Paint,
-              Brick Work, Regular Stair, Interior Doors, Interior Plaster, Interior Paint, Flooring, Plumbing Pipe, and Electrical Conduting, and the
+              Interior Windows, Brick Work, Regular Stair, Interior Doors, Interior Plaster, Interior Paint, Flooring, Plumbing Fixtures, Plumbing Pipe, Electrical Conduting, Electrical Fixtures, and design-service branches, and the
               returned values remain editable for the estimator.
             </p>
           </div>
@@ -216,7 +244,7 @@ export function JobEstimateDetailedEstimatePanel({
                 {formatAreaNumber(grossFloorArea)} sq.ft
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
-                Superstructure Footprint × (Stilt Floor Count + Floor Count)
+                Superstructure Footprint Ã— (Stilt Floor Count + Floor Count)
               </p>
             </div>
 
@@ -228,7 +256,7 @@ export function JobEstimateDetailedEstimatePanel({
                 INR {formatCurrencyNumber(estimatedUnitCost)}/sq.ft
               </p>
               <p className="mt-2 text-sm text-[var(--muted)]">
-                Estimated Project Cost ÷ Gross Floor Area
+                Estimated Project Cost Ã· Gross Floor Area
               </p>
             </div>
           </div>
@@ -354,6 +382,21 @@ export function JobEstimateDetailedEstimatePanel({
               handleBranchTotalChange("exteriorPaint", value)
             }
           />
+          <JobEstimateInteriorWindowsEstimateBranch
+            key={`interior-windows-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("interiorWindows", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("interiorWindows", value)
+            }
+          />
           <JobEstimateBrickWorkEstimateBranch
             key={`brick-work-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
             estimate={estimate}
@@ -440,6 +483,21 @@ export function JobEstimateDetailedEstimatePanel({
             }
             onTotalChange={(value) => handleBranchTotalChange("flooring", value)}
           />
+          <JobEstimatePlumbingFixturesEstimateBranch
+            key={`plumbing-fixtures-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("plumbingFixtures", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("plumbingFixtures", value)
+            }
+          />
           <JobEstimatePlumbingPipeEstimateBranch
             key={`plumbing-pipe-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
             estimate={estimate}
@@ -470,6 +528,96 @@ export function JobEstimateDetailedEstimatePanel({
               handleBranchTotalChange("electricalConduting", value)
             }
           />
+          <JobEstimateElectricalFixturesEstimateBranch
+            key={`electrical-fixtures-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("electricalFixtures", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("electricalFixtures", value)
+            }
+          />
+          <JobEstimateArchitecturalDesignEstimateBranch
+            key={`architectural-design-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("architecturalDesign", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("architecturalDesign", value)
+            }
+          />
+          <JobEstimateInteriorDesignServicesEstimateBranch
+            key={`interior-design-services-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("interiorDesignServices", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("interiorDesignServices", value)
+            }
+          />
+          <JobEstimateStructuralEngineeringEstimateBranch
+            key={`structural-engineering-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("structuralEngineering", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("structuralEngineering", value)
+            }
+          />
+          <JobEstimateMepEngineeringEstimateBranch
+            key={`mep-engineering-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("mepEngineering", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("mepEngineering", value)
+            }
+          />
+          <JobEstimateFireProtectionDesignEstimateBranch
+            key={`fire-protection-design-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("fireProtectionDesign", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("fireProtectionDesign", value)
+            }
+          />
         </div>
       </section>
     </section>
@@ -493,6 +641,15 @@ function parseOptionalNumber(value: string) {
   const parsed = Number.parseFloat(normalizedValue);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+
+
+
+
+
+
+
+
 
 
 

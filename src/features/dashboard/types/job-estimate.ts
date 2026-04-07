@@ -1,4 +1,4 @@
-export type JobEstimateRecord = {
+﻿export type JobEstimateRecord = {
   id: number;
   created_at: string;
   project_name: string;
@@ -235,6 +235,9 @@ export type JobEstimateOverviewSummaryItem = {
   quantity: number;
   quantityPerGfa: number;
   unit: string;
+  materialCostPerUnit: number;
+  labourCostPerUnit: number;
+  equipmentCostPerUnit: number;
   cost: number;
 };
 
@@ -267,3 +270,5 @@ export type JobEstimateOpening = {
   description: string;
   sortOrder: number;
 };
+
+
