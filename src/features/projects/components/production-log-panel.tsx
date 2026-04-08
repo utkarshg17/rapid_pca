@@ -65,6 +65,9 @@ export function ProductionLogPanel({
   const [editingEntry, setEditingEntry] = useState<ProductionLogEntry | null>(
     null
   );
+  const [expandedEntry, setExpandedEntry] = useState<ProductionLogEntry | null>(
+    null
+  );
   const [entryRecordDate, setEntryRecordDate] = useState(getTodayDateValue());
   const [entrySubContractorId, setEntrySubContractorId] = useState("");
   const [entryItem, setEntryItem] = useState("");
@@ -268,6 +271,14 @@ export function ProductionLogPanel({
     setEntryQuantity(String(entry.quantity));
     setEntryErrorMessage("");
     setIsEntryModalOpen(true);
+  }
+
+  function handleOpenExpandedEntryDialog(entry: ProductionLogEntry) {
+    setExpandedEntry(entry);
+  }
+
+  function handleCloseExpandedEntryDialog() {
+    setExpandedEntry(null);
   }
 
   function handleCloseEntryModal() {
@@ -730,10 +741,16 @@ export function ProductionLogPanel({
         <ProductionLogEntriesTable
           entries={filteredEntries}
           isLoadingEntries={isLoadingEntries}
+          onViewEntry={handleOpenExpandedEntryDialog}
           onEditEntry={handleOpenEditEntryModal}
           onDeleteEntry={handleDeleteEntry}
         />
       </section>
+
+      <ExpandedProductionLogEntryDialog
+        entry={expandedEntry}
+        onClose={handleCloseExpandedEntryDialog}
+      />
 
       <ProductionLogEntryModal
         isOpen={isEntryModalOpen}
@@ -818,6 +835,7 @@ export function ProductionLogPanel({
 type ProductionLogEntriesTableProps = {
   entries: ProductionLogEntry[];
   isLoadingEntries: boolean;
+  onViewEntry: (entry: ProductionLogEntry) => void;
   onEditEntry: (entry: ProductionLogEntry) => void;
   onDeleteEntry: (entryId: number) => void;
 };
@@ -825,6 +843,7 @@ type ProductionLogEntriesTableProps = {
 function ProductionLogEntriesTable({
   entries,
   isLoadingEntries,
+  onViewEntry,
   onEditEntry,
   onDeleteEntry,
 }: ProductionLogEntriesTableProps) {
@@ -901,7 +920,18 @@ function ProductionLogEntriesTable({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
+                        onClick={() => onViewEntry(entry)}
+                        aria-label={`View production log entry for ${entry.subContractorName}`}
+                        title="View entry"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                      >
+                        <ExpandIcon />
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => onEditEntry(entry)}
+                        aria-label={`Edit production log entry for ${entry.subContractorName}`}
                         title="Edit entry"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
                       >
@@ -911,6 +941,7 @@ function ProductionLogEntriesTable({
                       <button
                         type="button"
                         onClick={() => onDeleteEntry(entry.id)}
+                        aria-label={`Delete production log entry for ${entry.subContractorName}`}
                         title="Delete entry"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
                       >
@@ -924,6 +955,123 @@ function ProductionLogEntriesTable({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+type ExpandedProductionLogEntryDialogProps = {
+  entry: ProductionLogEntry | null;
+  onClose: () => void;
+};
+
+function ExpandedProductionLogEntryDialog({
+  entry,
+  onClose,
+}: ExpandedProductionLogEntryDialogProps) {
+  if (!entry) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] px-4 py-6"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-6 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold">Production Log Entry</h3>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Review the saved production details for this sub-contractor entry.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <InfoTile label="Record Date" value={formatDate(entry.recordDate)} />
+          <InfoTile label="Sub-Contractor" value={entry.subContractorName} />
+          <InfoTile label="Trade" value={entry.trade} />
+          <InfoTile label="Amount" value={formatCurrencyInr(entry.amount)} />
+          <InfoTile label="Item" value={entry.item} />
+          <InfoTile label="Cost Code" value={entry.costCode || "N/A"} />
+          <InfoTile label="Man Hours" value={formatNumber(entry.manHours)} />
+          <InfoTile
+            label="Quantity"
+            value={`${formatNumber(entry.quantity)} ${entry.unit}`}
+          />
+          <InfoTile
+            label="Rate"
+            value={formatRate(entry.rate, entry.rateUnit)}
+          />
+          <InfoTile label="Created By" value={entry.createdBy || "Unknown"} />
+          <InfoTile label="Created At" value={formatCreatedAt(entry.createdAt)} />
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-[var(--border)] text-left text-sm">
+              <thead className="bg-[var(--surface)]">
+                <tr>
+                  {[
+                    "Item",
+                    "Cost Code",
+                    "Sub-Contractor",
+                    "Trade",
+                    "Man Hours",
+                    "Quantity",
+                    "Rate",
+                    "Amount",
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="px-4 py-4 font-medium">{entry.item}</td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {entry.costCode || "N/A"}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {entry.subContractorName}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {entry.trade}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {formatNumber(entry.manHours)}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {formatNumber(entry.quantity)} {entry.unit}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {formatRate(entry.rate, entry.rateUnit)}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {formatCurrencyInr(entry.amount)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1898,6 +2046,25 @@ function InfoTile({ label, value }: { label: string; value: string }) {
         {value}
       </p>
     </div>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M9 4 4 9M15 4l5 5M9 20l-5-5M15 20l5-5"
+      />
+    </svg>
   );
 }
 

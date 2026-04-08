@@ -53,6 +53,39 @@ export async function updateMusterRollEntry(
     );
   }
 
+  const keptExistingRowIds = new Set(existingRows.map((row) => row.rowId));
+  const { data: savedRows, error: savedRowsError } = await supabase
+    .from("muster_roll")
+    .select("id")
+    .eq("project_id", input.projectId)
+    .eq("entry_group_id", input.entryGroupId)
+    .is("advance_payment", null);
+
+  if (savedRowsError) {
+    console.error("Error reading muster roll rows for deletion:", savedRowsError);
+    throw new Error(
+      savedRowsError.message || "Failed to check removed muster roll rows."
+    );
+  }
+
+  const rowIdsToDelete = (savedRows ?? [])
+    .map((row) => row.id as number)
+    .filter((rowId) => !keptExistingRowIds.has(rowId));
+
+  if (rowIdsToDelete.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("muster_roll")
+      .delete()
+      .in("id", rowIdsToDelete);
+
+    if (deleteError) {
+      console.error("Error deleting removed muster roll rows:", deleteError);
+      throw new Error(
+        deleteError.message || "Failed to delete removed muster roll rows."
+      );
+    }
+  }
+
   if (newRows.length === 0) {
     return;
   }

@@ -248,6 +248,7 @@ export function MusterRollPanel({
     useState<MusterRollEntry | null>(null);
   const [duplicateEntryCandidate, setDuplicateEntryCandidate] =
     useState<MusterRollEntry | null>(null);
+  const [duplicateRows, setDuplicateRows] = useState<MusterRollDraftRow[]>([]);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [isDeletingEntry, setIsDeletingEntry] = useState(false);
   const [reportMonthValue, setReportMonthValue] = useState(
@@ -464,6 +465,7 @@ export function MusterRollPanel({
     }
 
     setDuplicateEntryCandidate(entry);
+    setDuplicateRows(createDuplicateDraftRowsFromEntry(entry));
   }
 
   function handleCloseDeleteModal() {
@@ -474,6 +476,7 @@ export function MusterRollPanel({
 
   function handleCloseDuplicateModal() {
     setDuplicateEntryCandidate(null);
+    setDuplicateRows([]);
   }
 
   function handleOpenPettyContractorDialog() {
@@ -587,6 +590,12 @@ export function MusterRollPanel({
     setDraftRows((prev) => [...prev, createEmptyDraftRow()]);
   }
 
+  function handleDeleteDraftRow(rowId: number) {
+    setDraftRows((prev) =>
+      prev.length > 1 ? prev.filter((row) => row.id !== rowId) : prev
+    );
+  }
+
   function updateEditRow(
     rowId: number,
     updater: (row: MusterRollDraftRow) => MusterRollDraftRow
@@ -630,6 +639,18 @@ export function MusterRollPanel({
 
   function handleAddEditRow() {
     setEditRows((prev) => [...prev, createEmptyEditDraftRow()]);
+  }
+
+  function handleDeleteEditRow(rowId: number) {
+    setEditRows((prev) =>
+      prev.length > 1 ? prev.filter((row) => row.id !== rowId) : prev
+    );
+  }
+
+  function handleDeleteDuplicateRow(rowId: number) {
+    setDuplicateRows((prev) =>
+      prev.length > 1 ? prev.filter((row) => row.id !== rowId) : prev
+    );
   }
 
   function getPettyContractorById(pettyContractorId: string) {
@@ -1286,12 +1307,16 @@ export function MusterRollPanel({
   }
 
   function handleConfirmDuplicateEntry() {
-    if (!duplicateEntryCandidate || duplicateEntryCandidate.entryType !== "hours") {
+    if (
+      !duplicateEntryCandidate ||
+      duplicateEntryCandidate.entryType !== "hours" ||
+      duplicateRows.length === 0
+    ) {
       return;
     }
 
     setEntryDate(getTodayDateValue());
-    setDraftRows(createDuplicateDraftRowsFromEntry(duplicateEntryCandidate));
+    setDraftRows(duplicateRows);
     setEntryErrorMessage("");
     setEntryNoticeMessage("");
     setIsEntryModalOpen(true);
@@ -1390,6 +1415,7 @@ export function MusterRollPanel({
         onSubmit={handleEntrySubmit}
         onEntryDateChange={setEntryDate}
         onAddRow={handleAddDraftRow}
+        onDeleteRow={handleDeleteDraftRow}
         onDraftFieldChange={handleDraftFieldChange}
       />
 
@@ -1468,6 +1494,7 @@ export function MusterRollPanel({
         onSubmit={handleSaveEdit}
         onRecordDateChange={setEditRecordDate}
         onAddRow={handleAddEditRow}
+        onDeleteRow={handleDeleteEditRow}
         onFieldChange={handleEditFieldChange}
       />
 
@@ -1503,7 +1530,10 @@ export function MusterRollPanel({
 
       <DuplicateMusterRollEntryDialog
         entry={duplicateEntryCandidate}
+        pettyContractors={pettyContractors}
+        rows={duplicateRows}
         onClose={handleCloseDuplicateModal}
+        onDeleteRow={handleDeleteDuplicateRow}
         onDuplicate={handleConfirmDuplicateEntry}
       />
 
@@ -1704,6 +1734,7 @@ type MusterRollEntryModalProps = {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onEntryDateChange: (value: string) => void;
   onAddRow: () => void;
+  onDeleteRow: (rowId: number) => void;
   onDraftFieldChange: (
     rowId: number,
     key:
@@ -1732,6 +1763,7 @@ function MusterRollEntryModal({
   onSubmit,
   onEntryDateChange,
   onAddRow,
+  onDeleteRow,
   onDraftFieldChange,
 }: MusterRollEntryModalProps) {
   if (!isOpen) {
@@ -1808,6 +1840,7 @@ function MusterRollEntryModal({
                       "Overtime Hours",
                       "Rate (12h)",
                       "Line Total",
+                      "Action",
                     ].map((heading) => (
                       <th
                         key={heading}
@@ -1949,6 +1982,21 @@ function MusterRollEntryModal({
                         <td className="border border-[var(--border)] px-3 py-2 align-top text-[var(--muted)]">
                           {formatCurrencyInr(Number.isFinite(lineTotal) ? lineTotal : 0)}
                         </td>
+                        <td className="border border-[var(--border)] px-2 py-1 align-top">
+                          <button
+                            type="button"
+                            onClick={() => onDeleteRow(row.id)}
+                            disabled={draftRows.length <= 1}
+                            title={
+                              draftRows.length <= 1
+                                ? "At least one row is required"
+                                : "Delete row"
+                            }
+                            className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2017,6 +2065,7 @@ type EditMusterRollEntryModalProps = {
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
   onRecordDateChange: (value: string) => void;
   onAddRow: () => void;
+  onDeleteRow: (rowId: number) => void;
   onFieldChange: (
     rowId: number,
     key:
@@ -2044,6 +2093,7 @@ function EditMusterRollEntryModal({
   onSubmit,
   onRecordDateChange,
   onAddRow,
+  onDeleteRow,
   onFieldChange,
 }: EditMusterRollEntryModalProps) {
   if (!isOpen) {
@@ -2118,6 +2168,7 @@ function EditMusterRollEntryModal({
                       "Overtime Hours",
                       "Rate (12h)",
                       "Line Total",
+                      "Action",
                     ].map((heading) => (
                       <th
                         key={heading}
@@ -2256,6 +2307,21 @@ function EditMusterRollEntryModal({
                         <td className="border border-[var(--border)] px-3 py-2 align-top text-[var(--muted)]">
                           {formatCurrencyInr(Number.isFinite(lineTotal) ? lineTotal : 0)}
                         </td>
+                        <td className="border border-[var(--border)] px-2 py-1 align-top">
+                          <button
+                            type="button"
+                            onClick={() => onDeleteRow(row.id)}
+                            disabled={rows.length <= 1}
+                            title={
+                              rows.length <= 1
+                                ? "At least one row is required"
+                                : "Delete row"
+                            }
+                            className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Delete
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2293,18 +2359,26 @@ function EditMusterRollEntryModal({
 
 type DuplicateMusterRollEntryDialogProps = {
   entry: MusterRollEntry | null;
+  pettyContractors: PettyContractorRecord[];
+  rows: MusterRollDraftRow[];
   onClose: () => void;
+  onDeleteRow: (rowId: number) => void;
   onDuplicate: () => void;
 };
 
 function DuplicateMusterRollEntryDialog({
   entry,
+  pettyContractors,
+  rows,
   onClose,
+  onDeleteRow,
   onDuplicate,
 }: DuplicateMusterRollEntryDialogProps) {
   if (!entry) {
     return null;
   }
+
+  const summary = summarizeDraftRows(rows);
 
   return (
     <div
@@ -2312,15 +2386,15 @@ function DuplicateMusterRollEntryDialog({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+        className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-6 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-2xl font-semibold">Duplicate Muster Roll Entry</h3>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Do you want to duplicate this entry? We will open the same labour
-              rows in the Add New Entry form and set the record date to today.
+              Review the rows that will be copied. Delete any rows that should
+              not be included, then open the cleaned copy in the Add New Entry form.
             </p>
           </div>
 
@@ -2335,10 +2409,113 @@ function DuplicateMusterRollEntryDialog({
 
         <div className="grid gap-4 md:grid-cols-3">
           <InfoTile label="Original Date" value={formatDate(entry.recordDate)} />
-          <InfoTile label="Crew Rows" value={String(entry.rows.length)} />
+          <InfoTile label="Crew Rows" value={String(rows.length)} />
           <InfoTile
             label="Petty Contractor"
             value={entry.pettyContractorSummary}
+          />
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] table-fixed border-collapse text-left text-sm">
+              <thead className="bg-[var(--surface)]">
+                <tr>
+                  {[
+                    "Petty Contractor",
+                    "Crew Name",
+                    "Crew Type",
+                    "Regular Hours",
+                    "Overtime Hours",
+                    "Rate (12h)",
+                    "Line Total",
+                    "Action",
+                  ].map((heading) => (
+                    <th
+                      key={heading}
+                      className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]"
+                    >
+                      {heading}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-[var(--border)]">
+                {rows.map((row) => {
+                  const pettyContractor =
+                    pettyContractors.find(
+                      (contractor) =>
+                        String(contractor.id) === row.pettyContractorId
+                    ) ?? null;
+                  const regularHours = Number.parseFloat(row.regularHours || "0");
+                  const overtimeHours = Number.parseFloat(row.overtimeHours || "0");
+                  const rate = Number.parseFloat(row.rate || "0");
+                  const lineTotal =
+                    ((Number.isFinite(regularHours) ? regularHours : 0) +
+                      (Number.isFinite(overtimeHours) ? overtimeHours : 0)) *
+                    (Number.isFinite(rate) ? rate : 0) /
+                    12;
+
+                  return (
+                    <tr key={row.id}>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {pettyContractor?.petty_contractor_name ??
+                          "Unknown contractor"}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 font-medium">
+                        {row.crewName || "-"}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {row.crewType || "-"}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {formatNumber(Number.isFinite(regularHours) ? regularHours : 0)}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {formatNumber(Number.isFinite(overtimeHours) ? overtimeHours : 0)}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {formatCurrencyInr(Number.isFinite(rate) ? rate : 0)}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                        {formatCurrencyInr(Number.isFinite(lineTotal) ? lineTotal : 0)}
+                      </td>
+                      <td className="border border-[var(--border)] px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => onDeleteRow(row.id)}
+                          disabled={rows.length <= 1}
+                          title={
+                            rows.length <= 1
+                              ? "At least one row is required"
+                              : "Delete row from duplicate"
+                          }
+                          className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <InfoTile
+            label="Regular Hours"
+            value={formatNumber(summary.totalRegularHours)}
+          />
+          <InfoTile
+            label="Overtime Hours"
+            value={formatNumber(summary.totalOvertimeHours)}
+          />
+          <InfoTile
+            label="Estimated Amount"
+            value={formatCurrencyInr(summary.totalAmount)}
           />
         </div>
 
@@ -2353,6 +2530,7 @@ function DuplicateMusterRollEntryDialog({
           <button
             type="button"
             onClick={onDuplicate}
+            disabled={rows.length === 0}
             className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
           >
             Yes, Duplicate Entry

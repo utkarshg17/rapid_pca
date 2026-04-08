@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 type DashboardTab = "overview" | "projects" | "job-estimator" | "reports";
 
 type DashboardSidebarProps = {
@@ -44,6 +46,13 @@ export function DashboardSidebar({
               </button>
             );
           })}
+
+          <Link
+            href="/dashboard/site-inventory"
+            className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--foreground)] transition duration-200 ease-out hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+          >
+            Site Inventory
+          </Link>
         </div>
       </div>
     </aside>
