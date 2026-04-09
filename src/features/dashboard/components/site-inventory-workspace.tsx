@@ -2,7 +2,14 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { Input } from "@/components/ui/input";
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
@@ -28,7 +35,7 @@ import type {
   SiteInventoryUnit,
 } from "@/features/dashboard/types/site-inventory";
 
-const inventoryUnits: SiteInventoryUnit[] = ["Bags", "cu.m", "sq.ft", "count", "litre", "kg", "ton"];
+const inventoryUnits: SiteInventoryUnit[] = ["Bags", "bundle", "cu.m", "sq.ft", "count", "litre", "kg", "ton"];
 const inventoryItemCategories = [
   "Fixed Asset",
   "Consumable Asset",
@@ -1224,9 +1231,33 @@ function SourceManagerDialog({
   const [editingSourceId, setEditingSourceId] = useState<number | null>(null);
   const [sourceName, setSourceName] = useState("");
   const [sourceType, setSourceType] = useState<SiteInventorySourceType>("Site");
+  const [sourceSearchQuery, setSourceSearchQuery] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const deferredSourceSearchQuery = useDeferredValue(sourceSearchQuery);
+  const filteredSources = useMemo(() => {
+    const normalizedQuery = normalizeInventorySearchValue(
+      deferredSourceSearchQuery
+    );
+
+    if (!normalizedQuery) {
+      return sources;
+    }
+
+    return sources
+      .map((source) => ({
+        source,
+        score: getInventorySourceSearchScore(source, normalizedQuery),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.source.sourceName.localeCompare(right.source.sourceName)
+      )
+      .map((entry) => entry.source);
+  }, [sources, deferredSourceSearchQuery]);
 
   if (!isOpen) return null;
 
@@ -1297,17 +1328,42 @@ function SourceManagerDialog({
             <option value="inactive">Inactive</option>
           </select>
         </Field>
-        <button type="submit" disabled={isSaving} className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60">
+        <button type="submit" disabled={isSaving} className="h-12 self-end rounded-2xl bg-green-600 px-5 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60">
           {editingSourceId ? "Save Source" : "Add Source"}
         </button>
       </form>
 
       {errorMessage ? <ErrorMessage message={errorMessage} /> : null}
-      <div className="overflow-x-auto rounded-2xl border border-[var(--border)]">
+      <div className="mb-4 space-y-2">
+        <span className="block text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+          Search Existing Sources
+        </span>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
+          <Input
+            value={sourceSearchQuery}
+            onChange={(event) => setSourceSearchQuery(event.target.value)}
+            placeholder="Search by source name, type, or status"
+          />
+          <p className="text-sm text-[var(--muted)]">
+            {sourceSearchQuery.trim()
+              ? `Showing ${filteredSources.length} matching source${
+                  filteredSources.length === 1 ? "" : "s"
+                } as you type.`
+              : "Type to quickly find close matches before adding a new inventory source."}
+          </p>
+        </div>
+      </div>
+      <div className="min-h-[420px] overflow-x-auto rounded-2xl border border-[var(--border)]">
         <table className="w-full min-w-[720px] border-collapse text-left text-sm">
           <thead className="bg-[var(--surface)]"><tr><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Source</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Type</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Status</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Action</th></tr></thead>
           <tbody className="divide-y divide-[var(--border)]">
-            {sources.map((source) => (
+            {filteredSources.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-sm text-[var(--muted)]">
+                  No sources matched your search.
+                </td>
+              </tr>
+            ) : filteredSources.map((source) => (
               <tr key={source.id}>
                 <td className="px-4 py-3 font-medium">{source.sourceName}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">{source.sourceType}</td>
@@ -1342,9 +1398,33 @@ function ItemManagerDialog({
   const [defaultUnit, setDefaultUnit] = useState<SiteInventoryUnit>("count");
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
+  const [itemSearchQuery, setItemSearchQuery] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const deferredItemSearchQuery = useDeferredValue(itemSearchQuery);
+  const filteredItems = useMemo(() => {
+    const normalizedQuery = normalizeInventorySearchValue(
+      deferredItemSearchQuery
+    );
+
+    if (!normalizedQuery) {
+      return items;
+    }
+
+    return items
+      .map((item) => ({
+        item,
+        score: getInventoryItemSearchScore(item, normalizedQuery),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          left.item.itemName.localeCompare(right.item.itemName)
+      )
+      .map((entry) => entry.item);
+  }, [items, deferredItemSearchQuery]);
 
   if (!isOpen) return null;
 
@@ -1421,16 +1501,35 @@ function ItemManagerDialog({
             <option value="inactive">Inactive</option>
           </select>
         </Field>
-        <button type="submit" disabled={isSaving} className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60">{editingItemId ? "Save Item" : "Add Item"}</button>
+        <button type="submit" disabled={isSaving} className="h-12 self-end rounded-2xl bg-green-600 px-5 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60">{editingItemId ? "Save Item" : "Add Item"}</button>
         <div className="lg:col-span-5"><Field label="Description"><Input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Optional item description" /></Field></div>
       </form>
 
       {errorMessage ? <ErrorMessage message={errorMessage} /> : null}
-      <div className="overflow-x-auto rounded-2xl border border-[var(--border)]">
+      <div className="mb-4 space-y-2">
+        <span className="block text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+          Search Existing Items
+        </span>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,360px)_1fr] lg:items-center">
+          <Input
+            value={itemSearchQuery}
+            onChange={(event) => setItemSearchQuery(event.target.value)}
+            placeholder="Search by item name, category, description, or unit"
+          />
+          <p className="text-sm text-[var(--muted)]">
+            {itemSearchQuery.trim()
+              ? `Showing ${filteredItems.length} matching item${
+                  filteredItems.length === 1 ? "" : "s"
+                } as you type.`
+              : "Type to quickly find close matches before adding a new inventory item."}
+          </p>
+        </div>
+      </div>
+      <div className="min-h-[520px] overflow-x-auto rounded-2xl border border-[var(--border)]">
         <table className="w-full min-w-[900px] border-collapse text-left text-sm">
           <thead className="bg-[var(--surface)]"><tr><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Item</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Unit</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Category</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Description</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Status</th><th className="px-4 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Action</th></tr></thead>
           <tbody className="divide-y divide-[var(--border)]">
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <tr key={item.id}>
                 <td className="px-4 py-3 font-medium">{item.itemName}</td>
                 <td className="px-4 py-3 text-[var(--muted)]">{item.defaultUnit}</td>
@@ -1440,6 +1539,16 @@ function ItemManagerDialog({
                 <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button type="button" onClick={() => { setEditingItemId(item.id); setItemName(item.itemName); setDefaultUnit(item.defaultUnit); setCategory(item.category); setDescription(item.description); setIsActive(item.isActive); }} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium transition duration-200 hover:cursor-pointer hover:border-[var(--border-strong)]">Edit</button><button type="button" onClick={() => void handleDelete(item.id)} className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300">Delete</button></div></td>
               </tr>
             ))}
+            {filteredItems.length === 0 ? (
+              <tr>
+                <td
+                  className="px-4 py-6 text-sm text-[var(--muted)]"
+                  colSpan={6}
+                >
+                  No inventory items match this search yet.
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>
@@ -1545,6 +1654,121 @@ function formatDate(value: string) {
 function formatDateTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function normalizeInventorySearchValue(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getInventoryItemSearchScore(
+  item: SiteInventoryItem,
+  normalizedQuery: string
+) {
+  const itemName = normalizeInventorySearchValue(item.itemName);
+  const category = normalizeInventorySearchValue(item.category);
+  const description = normalizeInventorySearchValue(item.description);
+  const unit = normalizeInventorySearchValue(item.defaultUnit);
+
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  let score = 0;
+
+  if (itemName === normalizedQuery) {
+    score += 120;
+  }
+
+  if (itemName.startsWith(normalizedQuery)) {
+    score += 90;
+  }
+
+  if (itemName.includes(normalizedQuery)) {
+    score += 70;
+  }
+
+  if (category.includes(normalizedQuery)) {
+    score += 35;
+  }
+
+  if (description.includes(normalizedQuery)) {
+    score += 20;
+  }
+
+  if (unit.includes(normalizedQuery)) {
+    score += 10;
+  }
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+
+  for (const token of queryTokens) {
+    if (itemName.includes(token)) {
+      score += 20;
+    }
+
+    if (category.includes(token)) {
+      score += 8;
+    }
+
+    if (description.includes(token)) {
+      score += 5;
+    }
+  }
+
+  return score;
+}
+
+function getInventorySourceSearchScore(
+  source: SiteInventorySource,
+  normalizedQuery: string
+) {
+  const sourceName = normalizeInventorySearchValue(source.sourceName);
+  const sourceType = normalizeInventorySearchValue(source.sourceType);
+  const status = source.isActive ? "active" : "inactive";
+
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  let score = 0;
+
+  if (sourceName === normalizedQuery) {
+    score += 120;
+  }
+
+  if (sourceName.startsWith(normalizedQuery)) {
+    score += 90;
+  }
+
+  if (sourceName.includes(normalizedQuery)) {
+    score += 70;
+  }
+
+  if (sourceType.includes(normalizedQuery)) {
+    score += 25;
+  }
+
+  if (status.includes(normalizedQuery)) {
+    score += 15;
+  }
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+
+  for (const token of queryTokens) {
+    if (sourceName.includes(token)) {
+      score += 20;
+    }
+
+    if (sourceType.includes(token)) {
+      score += 8;
+    }
+
+    if (status.includes(token)) {
+      score += 5;
+    }
+  }
+
+  return score;
 }
 
 

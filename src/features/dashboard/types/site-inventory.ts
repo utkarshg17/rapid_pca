@@ -1,6 +1,14 @@
 export type SiteInventorySourceType = "Site" | "Supplier" | "Other";
 
-export type SiteInventoryUnit = "Bags" | "cu.m" | "sq.ft" | "count" | "litre" | "kg" | "ton";
+export type SiteInventoryUnit =
+  | "Bags"
+  | "bundle"
+  | "cu.m"
+  | "sq.ft"
+  | "count"
+  | "litre"
+  | "kg"
+  | "ton";
 
 export type SiteInventorySourceRecord = {
   id: number;

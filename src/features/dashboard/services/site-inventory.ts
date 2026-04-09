@@ -24,6 +24,7 @@ const validSourceTypes = new Set<SiteInventorySourceType>([
 ]);
 const validUnits = new Set<SiteInventoryUnit>([
   "Bags",
+  "bundle",
   "cu.m",
   "sq.ft",
   "count",
