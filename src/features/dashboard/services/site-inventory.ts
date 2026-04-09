@@ -14,6 +14,7 @@ import type {
   SiteInventoryTransactionLineRecord,
   SiteInventoryTransactionRecord,
   SiteInventoryUnit,
+  UpdateSiteInventoryTransactionInput,
 } from "@/features/dashboard/types/site-inventory";
 
 const validSourceTypes = new Set<SiteInventorySourceType>([
@@ -222,25 +223,12 @@ export async function getSiteInventoryTransactions(): Promise<
 export async function createSiteInventoryTransaction(
   input: CreateSiteInventoryTransactionInput
 ): Promise<number> {
-  if (input.fromSourceId === input.toSourceId) {
-    throw new Error("Choose different From and To sources.");
-  }
+  assertValidTransactionHeader({
+    fromSourceId: input.fromSourceId,
+    toSourceId: input.toSourceId,
+  });
 
-  const validLines = input.lines.filter(
-    (line) => line.itemId > 0 && line.quantity > 0
-  );
-
-  if (validLines.length === 0) {
-    throw new Error("Add at least one item line with quantity greater than zero.");
-  }
-
-  const sources = await getSiteInventorySources();
-  const fromSource = sources.find((source) => source.id === input.fromSourceId);
-  const toSource = sources.find((source) => source.id === input.toSourceId);
-
-  if (!fromSource || !toSource) {
-    throw new Error("Choose valid From and To sources.");
-  }
+  const validLines = normalizeTransactionLinesInput(input.lines);
 
   const { data: transactionData, error: transactionError } = await supabase
     .from("site_inventory_transactions")
@@ -264,44 +252,79 @@ export async function createSiteInventoryTransaction(
 
   const transactionId = transactionData.id as number;
 
-  const { error: lineError } = await supabase
-    .from("site_inventory_transaction_lines")
-    .insert(
-      validLines.map((line, index) => ({
-        transaction_id: transactionId,
-        item_id: line.itemId,
-        quantity: line.quantity,
-        unit: line.unit,
-        remarks: toNullableText(line.remarks),
-        sort_order: index,
-      }))
-    );
-
-  if (lineError) {
-    throw new Error(lineError.message || "Failed to save inventory transaction lines.");
-  }
-
-  for (const line of validLines) {
-    if (fromSource.sourceType === "Site") {
-      await adjustSiteInventoryBalance({
-        siteSourceId: fromSource.id,
-        itemId: line.itemId,
-        unit: line.unit,
-        delta: -line.quantity,
-      });
-    }
-
-    if (toSource.sourceType === "Site") {
-      await adjustSiteInventoryBalance({
-        siteSourceId: toSource.id,
-        itemId: line.itemId,
-        unit: line.unit,
-        delta: line.quantity,
-      });
-    }
-  }
+  await insertTransactionLines(transactionId, validLines);
+  await rebuildSiteInventoryBalances();
 
   return transactionId;
+}
+
+export async function updateSiteInventoryTransaction(
+  input: UpdateSiteInventoryTransactionInput
+): Promise<number> {
+  assertValidTransactionHeader({
+    fromSourceId: input.fromSourceId,
+    toSourceId: input.toSourceId,
+  });
+
+  const validLines = normalizeTransactionLinesInput(input.lines);
+
+  const { data: existingTransaction, error: existingTransactionError } = await supabase
+    .from("site_inventory_transactions")
+    .select("id")
+    .eq("id", input.transactionId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingTransactionError) {
+    throw new Error(existingTransactionError.message || "Failed to load inventory transaction.");
+  }
+
+  if (!existingTransaction?.id) {
+    throw new Error("This inventory movement no longer exists.");
+  }
+
+  const { error: updateError } = await supabase
+    .from("site_inventory_transactions")
+    .update({
+      transaction_date: input.transactionDate || new Date().toISOString().slice(0, 10),
+      from_source_id: input.fromSourceId,
+      to_source_id: input.toSourceId,
+      challan_bill_no: toNullableText(input.challanBillNo),
+      vehicle_number: toNullableText(input.vehicleNumber),
+      remarks: toNullableText(input.remarks),
+    })
+    .eq("id", input.transactionId);
+
+  if (updateError) {
+    throw new Error(updateError.message || "Failed to update inventory transaction.");
+  }
+
+  const { error: deleteLinesError } = await supabase
+    .from("site_inventory_transaction_lines")
+    .delete()
+    .eq("transaction_id", input.transactionId);
+
+  if (deleteLinesError) {
+    throw new Error(deleteLinesError.message || "Failed to replace inventory transaction lines.");
+  }
+
+  await insertTransactionLines(input.transactionId, validLines);
+  await rebuildSiteInventoryBalances();
+
+  return input.transactionId;
+}
+
+export async function deleteSiteInventoryTransaction(transactionId: number) {
+  const { error } = await supabase
+    .from("site_inventory_transactions")
+    .delete()
+    .eq("id", transactionId);
+
+  if (error) {
+    throw new Error(error.message || "Failed to delete inventory transaction.");
+  }
+
+  await rebuildSiteInventoryBalances();
 }
 
 export async function getSiteInventoryBalances(): Promise<SiteInventoryBalance[]> {
@@ -372,55 +395,168 @@ async function fetchBalanceRecords() {
   return (data ?? []) as SiteInventoryBalanceRecord[];
 }
 
-async function adjustSiteInventoryBalance({
-  siteSourceId,
-  itemId,
-  unit,
-  delta,
+function assertValidTransactionHeader({
+  fromSourceId,
+  toSourceId,
 }: {
-  siteSourceId: number;
-  itemId: number;
-  unit: SiteInventoryUnit;
-  delta: number;
+  fromSourceId: number;
+  toSourceId: number;
 }) {
-  const { data: existingBalance, error: balanceError } = await supabase
-    .from("site_inventory_balances")
-    .select("id, quantity_on_hand")
-    .eq("site_source_id", siteSourceId)
-    .eq("item_id", itemId)
-    .eq("unit", unit)
-    .limit(1)
-    .maybeSingle();
-
-  if (balanceError) {
-    throw new Error(balanceError.message || "Failed to read site inventory balance.");
+  if (!fromSourceId || !toSourceId) {
+    throw new Error("Choose valid From and To sources.");
   }
 
-  if (existingBalance?.id) {
-    const nextQuantity = Number(existingBalance.quantity_on_hand ?? 0) + delta;
-    const { error: updateError } = await supabase
-      .from("site_inventory_balances")
-      .update({ quantity_on_hand: nextQuantity })
-      .eq("id", existingBalance.id);
+  if (fromSourceId === toSourceId) {
+    throw new Error("Choose different From and To sources.");
+  }
+}
 
-    if (updateError) {
-      throw new Error(updateError.message || "Failed to update site inventory balance.");
-    }
+function normalizeTransactionLinesInput(
+  lines: Array<{
+    itemId: number;
+    quantity: number;
+    unit: SiteInventoryUnit;
+    remarks: string;
+  }>
+) {
+  const validLines = lines.filter((line) => line.itemId > 0 && line.quantity > 0);
 
+  if (validLines.length === 0) {
+    throw new Error("Add at least one item line with quantity greater than zero.");
+  }
+
+  return validLines.map((line) => ({
+    itemId: line.itemId,
+    quantity: line.quantity,
+    unit: line.unit,
+    remarks: line.remarks,
+  }));
+}
+
+async function insertTransactionLines(
+  transactionId: number,
+  lines: Array<{
+    itemId: number;
+    quantity: number;
+    unit: SiteInventoryUnit;
+    remarks: string;
+  }>
+) {
+  const { error } = await supabase
+    .from("site_inventory_transaction_lines")
+    .insert(
+      lines.map((line, index) => ({
+        transaction_id: transactionId,
+        item_id: line.itemId,
+        quantity: line.quantity,
+        unit: line.unit,
+        remarks: toNullableText(line.remarks),
+        sort_order: index,
+      }))
+    );
+
+  if (error) {
+    throw new Error(error.message || "Failed to save inventory transaction lines.");
+  }
+}
+
+async function rebuildSiteInventoryBalances() {
+  const [transactions, sources] = await Promise.all([
+    fetchTransactionRecords(),
+    getSiteInventorySources(),
+  ]);
+
+  const siteSourceTypeById = new Map(
+    sources.map((source) => [source.id, source.sourceType])
+  );
+  const postedTransactions = transactions.filter(
+    (transaction) => (transaction.status ?? "posted") === "posted"
+  );
+  const transactionIds = postedTransactions.map((transaction) => transaction.id);
+
+  const { error: clearError } = await supabase
+    .from("site_inventory_balances")
+    .delete()
+    .gt("id", 0);
+
+  if (clearError) {
+    throw new Error(clearError.message || "Failed to reset site inventory balances.");
+  }
+
+  if (transactionIds.length === 0) {
     return;
   }
 
-  const { error: insertError } = await supabase
-    .from("site_inventory_balances")
-    .insert({
-      site_source_id: siteSourceId,
-      item_id: itemId,
-      unit,
-      quantity_on_hand: delta,
-    });
+  const { data: lineData, error: lineError } = await supabase
+    .from("site_inventory_transaction_lines")
+    .select("transaction_id, item_id, quantity, unit")
+    .in("transaction_id", transactionIds)
+    .order("transaction_id", { ascending: true })
+    .order("sort_order", { ascending: true })
+    .order("created_at", { ascending: true });
 
-  if (insertError) {
-    throw new Error(insertError.message || "Failed to create site inventory balance.");
+  if (lineError) {
+    throw new Error(lineError.message || "Failed to rebuild inventory balances.");
+  }
+
+  const linesByTransactionId = new Map<number, Array<{ item_id: number; quantity: number; unit: string }>>();
+
+  ((lineData ?? []) as Array<{ transaction_id: number; item_id: number; quantity: number; unit: string }>).forEach((line) => {
+    const existingLines = linesByTransactionId.get(line.transaction_id) ?? [];
+    existingLines.push(line);
+    linesByTransactionId.set(line.transaction_id, existingLines);
+  });
+
+  const balanceMap = new Map<string, { site_source_id: number; item_id: number; unit: SiteInventoryUnit; quantity_on_hand: number }>();
+
+  for (const transaction of postedTransactions) {
+    const fromSourceType = siteSourceTypeById.get(transaction.from_source_id) ?? "Other";
+    const toSourceType = siteSourceTypeById.get(transaction.to_source_id) ?? "Other";
+    const lines = linesByTransactionId.get(transaction.id) ?? [];
+
+    for (const line of lines) {
+      const normalizedUnit = normalizeUnit(line.unit);
+
+      if (fromSourceType === "Site") {
+        const balanceKey = `${transaction.from_source_id}-${line.item_id}-${normalizedUnit}`;
+        const existingBalance = balanceMap.get(balanceKey) ?? {
+          site_source_id: transaction.from_source_id,
+          item_id: line.item_id,
+          unit: normalizedUnit,
+          quantity_on_hand: 0,
+        };
+        existingBalance.quantity_on_hand -= Number(line.quantity ?? 0);
+        balanceMap.set(balanceKey, existingBalance);
+      }
+
+      if (toSourceType === "Site") {
+        const balanceKey = `${transaction.to_source_id}-${line.item_id}-${normalizedUnit}`;
+        const existingBalance = balanceMap.get(balanceKey) ?? {
+          site_source_id: transaction.to_source_id,
+          item_id: line.item_id,
+          unit: normalizedUnit,
+          quantity_on_hand: 0,
+        };
+        existingBalance.quantity_on_hand += Number(line.quantity ?? 0);
+        balanceMap.set(balanceKey, existingBalance);
+      }
+    }
+  }
+
+  const balancesToInsert = Array.from(balanceMap.values()).filter(
+    (balance) => balance.quantity_on_hand !== 0
+  );
+
+  if (balancesToInsert.length === 0) {
+    return;
+  }
+
+  const { error: insertBalancesError } = await supabase
+    .from("site_inventory_balances")
+    .insert(balancesToInsert);
+
+  if (insertBalancesError) {
+    throw new Error(insertBalancesError.message || "Failed to rebuild site inventory balances.");
   }
 }
 
@@ -485,6 +621,9 @@ function toNullableUuid(value: string | null) {
     ? value
     : null;
 }
+
+
+
 
 
 

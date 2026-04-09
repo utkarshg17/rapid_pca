@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -85,6 +89,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "C3014",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType: body.projectDetails?.superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["interior plaster", "internal plaster", "cement plaster", "plaster", "wall plaster"],
@@ -134,18 +146,20 @@ export async function POST(request: Request) {
         "No user-entered interior plaster description provided. Assume a standard interior plaster finish suitable for the project location.",
       notes: [
         "Estimate the total interior plaster area in sq.ft from the project details and room program.",
-        "Do not jump directly to total area. First estimate the most appropriate benchmark area per GFA ratio for interior plaster based on project type, floor range, and building configuration, then multiply that benchmark by GFA to get the final total area.",
+        "Do not jump directly to total area. Start from benchmarkContext.finalRatioPerSqftGfa as the default area-per-GFA benchmark and adjust only if the project inputs clearly justify it, then multiply that benchmark by GFA to get the final total area.",
         `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
         "If the interior plaster finish description is missing, assume a standard interior plaster finish suited to the project location.",
-        "State the benchmark factor used in assumptions and briefly explain why it is appropriate for this project.",
+        "State the final quantity/GFA factor used in assumptions and briefly explain why it is appropriate for this project.",
         "Return practical conceptual rates per sq.ft for material, labour, and equipment.",
         "Equipment may be 0 when clearly not applicable.",
         "Assume Indian construction context.",
+        ...buildBenchmarkPromptNotes(benchmarkContext),
         ...buildDsrPromptNotes("INR per sq.ft"),
         ...buildPricingFallbackPromptNotes("INR per sq.ft"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    benchmarkContext,
     webPricingContext,
     dsrReferenceRates,
     areaTakeoffs: body.areaTakeoffs,
@@ -169,7 +183,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual interior plaster cost draft for estimator review. Use the project details, area takeoffs, and interior plaster finish description when available. Do not estimate the total area directly. First infer the most appropriate interior plaster area per GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final total area. State the benchmark factor you used in assumptions and briefly explain why it is appropriate. Estimate a realistic total interior plaster area in sq.ft, practical per-sq.ft material, labour, and equipment costs in INR, and keep assumptions short and specific. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual interior plaster cost draft for estimator review. Use the project details, area takeoffs, interior plaster finish description, and benchmarkContext when available. Do not estimate the total area directly. Start from benchmarkContext.finalRatioPerSqftGfa as the default area anchor, adjust it only when the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final total area. State the final quantity/GFA factor you used in assumptions and briefly explain why it is appropriate. Estimate a realistic total interior plaster area in sq.ft, practical per-sq.ft material, labour, and equipment costs in INR, and keep assumptions short and specific. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",

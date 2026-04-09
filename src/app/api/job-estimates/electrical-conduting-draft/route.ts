@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -84,6 +88,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "D5013",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType: body.projectDetails?.superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["electrical conduit", "conduit", "wiring", "distribution box", "electrical"],
@@ -135,21 +147,25 @@ export async function POST(request: Request) {
       pricingBasis: "Conceptual estimate for bidding review",
       notes: [
         "Estimate the total electrical conduting quantity in LF for the structure.",
-        "Do not jump directly to total quantity. First estimate the most appropriate benchmark LF per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final total quantity.",
+        "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the default LF-of-conduiting-per-sq.ft-of-GFA benchmark, adjust it only if the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final total quantity.",
         `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
+        "Explicitly interpret the benchmark ratio for D5013 as LF of conduiting per sq.ft of GFA.",
         "This scope includes conduiting pipe, the actual wiring, and distribution boxes for the structure.",
         "This scope excludes switches, sockets, plugs, light fixtures, fans, decorative fixtures, and other electrical accessories that belong in separate cost codes.",
         "Assume the conduiting runs through slabs and walls of the building.",
         "Material cost per LF should include conduiting pipe, wiring, distribution boxes, and clearly necessary miscellaneous electrical consumables for this scope.",
         "Labour cost per LF should include chasing or placement effort where relevant, pipe laying, wire pulling, box fixing, and associated electrical labour for the conduting scope.",
         "Equipment cost per LF may include small tools and clearly applicable installation equipment. Use 0 when equipment is not meaningfully applicable.",
+        "This line item depends primarily on electrical service density, lighting density, outlet density, equipment intensity, and routing complexity.",
         "Return practical conceptual costs in INR per LF.",
         "Assume Indian construction context.",
+        ...buildBenchmarkPromptNotes(benchmarkContext),
         ...buildDsrPromptNotes("INR per LF"),
         ...buildPricingFallbackPromptNotes("INR per LF"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    benchmarkContext,
     dsrReferenceRates,
     webPricingContext,
     areaTakeoffs: body.areaTakeoffs,
@@ -173,7 +189,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Electrical Conduting. Use the project details, area takeoffs, and finishes to estimate a realistic electrical conduting quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. First infer the most appropriate LF per sq.ft of GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. This scope includes conduiting pipe, the actual wiring, and distribution boxes, but excludes switches, plugs, sockets, and fixtures. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Electrical Conduting. Use the project details, area takeoffs, finishes, and benchmarkContext to estimate a realistic electrical conduting quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the default LF-of-conduiting-per-sq.ft-of-GFA anchor, adjust it only when the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final quantity. This scope includes conduiting pipe, the actual wiring, and distribution boxes, but excludes switches, plugs, sockets, and fixtures. Electrical Conduiting depends primarily on electrical service density, lighting density, outlet density, equipment intensity, and routing complexity. In assumptions, explicitly state the selected base ratio, applied foundation multiplier, applied superstructure multiplier, final ratio, and final estimated quantity. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",

@@ -10,12 +10,14 @@ import {
   createSiteInventoryTransaction,
   deleteSiteInventoryItem,
   deleteSiteInventorySource,
+  deleteSiteInventoryTransaction,
   getSiteInventoryBalances,
   getSiteInventoryItems,
   getSiteInventorySources,
   getSiteInventoryTransactions,
   saveSiteInventoryItem,
   saveSiteInventorySource,
+  updateSiteInventoryTransaction,
 } from "@/features/dashboard/services/site-inventory";
 import type {
   SiteInventoryBalance,
@@ -83,6 +85,12 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
   const [isSourceDialogOpen, setIsSourceDialogOpen] = useState(false);
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
   const [isLogDialogOpen, setIsLogDialogOpen] = useState(false);
+  const [editingTransactionId, setEditingTransactionId] = useState<number | null>(
+    null
+  );
+  const [isDeletingTransactionId, setIsDeletingTransactionId] = useState<
+    number | null
+  >(null);
   const [transactionDate, setTransactionDate] = useState(getTodayInputValue());
   const [lineDrafts, setLineDrafts] =
     useState<TransactionLineDraft[]>(createDefaultLines);
@@ -201,6 +209,79 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
     });
   }
 
+
+  function resetLogComposer() {
+    setEditingTransactionId(null);
+    setTransactionDate(getTodayInputValue());
+    setLineDrafts(createDefaultLines());
+  }
+
+  function handleOpenCreateLogDialog() {
+    setErrorMessage("");
+    setStatusMessage("");
+    resetLogComposer();
+    setIsLogDialogOpen(true);
+  }
+
+  function handleCloseLogDialog() {
+    setIsLogDialogOpen(false);
+    resetLogComposer();
+  }
+
+  function handleEditTransaction(transaction: SiteInventoryTransaction) {
+    setErrorMessage("");
+    setStatusMessage("");
+    setEditingTransactionId(transaction.id);
+    setTransactionDate(transaction.transactionDate || getTodayInputValue());
+    setLineDrafts(
+      transaction.lines.length > 0
+        ? transaction.lines.map((line, index) => ({
+            id: Date.now() + index,
+            fromSourceId: String(transaction.fromSourceId),
+            toSourceId: String(transaction.toSourceId),
+            itemId: String(line.itemId),
+            quantity: String(line.quantity),
+            unit: line.unit,
+            challanBillNo: transaction.challanBillNo,
+            vehicleNumber: transaction.vehicleNumber,
+            remarks: line.remarks || transaction.remarks,
+          }))
+        : [createEmptyLine()]
+    );
+    setIsLogDialogOpen(true);
+  }
+
+  async function handleDeleteTransaction(transactionId: number) {
+    const shouldDelete = window.confirm(
+      "Delete this inventory movement? This will also update the site balances."
+    );
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setErrorMessage("");
+    setStatusMessage("");
+    setIsDeletingTransactionId(transactionId);
+
+    try {
+      await deleteSiteInventoryTransaction(transactionId);
+
+      if (editingTransactionId === transactionId) {
+        handleCloseLogDialog();
+      }
+
+      setStatusMessage(`Inventory movement deleted at ${new Date().toLocaleTimeString()}`);
+      await refreshInventory();
+    } catch (error) {
+      console.error("Failed to delete inventory transaction:", error);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to delete inventory movement."
+      );
+    } finally {
+      setIsDeletingTransactionId(null);
+    }
+  }
   async function handlePostTransaction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setErrorMessage("");
@@ -252,50 +333,87 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
     }
 
     setIsPostingTransaction(true);
-    setStatusMessage("Posting inventory movements...");
+    setStatusMessage(editingTransactionId ? "Saving inventory movement..." : "Posting inventory movements...");
 
     try {
-      for (const line of validLines) {
-        await createSiteInventoryTransaction({
+      if (editingTransactionId) {
+        const headerLine = validLines[0];
+        const mismatchedHeaderLine = validLines.find(
+          (line) =>
+            line.fromSourceId !== headerLine.fromSourceId ||
+            line.toSourceId !== headerLine.toSourceId ||
+            line.challanBillNo !== headerLine.challanBillNo ||
+            line.vehicleNumber !== headerLine.vehicleNumber ||
+            line.remarks !== headerLine.remarks
+        );
+
+        if (mismatchedHeaderLine) {
+          setErrorMessage(
+            "While editing one saved movement, all rows must use the same From, To, Challan / Bill, Vehicle, and Remarks."
+          );
+          setStatusMessage("");
+          return;
+        }
+
+        await updateSiteInventoryTransaction({
+          transactionId: editingTransactionId,
           transactionDate,
-          fromSourceId: line.fromSourceId,
-          toSourceId: line.toSourceId,
-          challanBillNo: line.challanBillNo,
-          vehicleNumber: line.vehicleNumber,
-          remarks: line.remarks,
-          createdById: getInventoryCreatedById(profile),
-          createdByName,
-          lines: [
-            {
-              itemId: line.itemId,
-              quantity: line.quantity,
-              unit: line.unit,
-              remarks: line.remarks,
-            },
-          ],
+          fromSourceId: headerLine.fromSourceId,
+          toSourceId: headerLine.toSourceId,
+          challanBillNo: headerLine.challanBillNo,
+          vehicleNumber: headerLine.vehicleNumber,
+          remarks: headerLine.remarks,
+          lines: validLines.map((line) => ({
+            itemId: line.itemId,
+            quantity: line.quantity,
+            unit: line.unit,
+            remarks: line.remarks,
+          })),
         });
+
+        handleCloseLogDialog();
+        setStatusMessage(`Inventory movement updated at ${new Date().toLocaleTimeString()}`);
+      } else {
+        for (const line of validLines) {
+          await createSiteInventoryTransaction({
+            transactionDate,
+            fromSourceId: line.fromSourceId,
+            toSourceId: line.toSourceId,
+            challanBillNo: line.challanBillNo,
+            vehicleNumber: line.vehicleNumber,
+            remarks: line.remarks,
+            createdById: getInventoryCreatedById(profile),
+            createdByName,
+            lines: [
+              {
+                itemId: line.itemId,
+                quantity: line.quantity,
+                unit: line.unit,
+                remarks: line.remarks,
+              },
+            ],
+          });
+        }
+
+        handleCloseLogDialog();
+        setStatusMessage(
+          `Posted ${validLines.length} movement${
+            validLines.length === 1 ? "" : "s"
+          } at ${new Date().toLocaleTimeString()}`
+        );
       }
 
-      setTransactionDate(getTodayInputValue());
-      setLineDrafts(createDefaultLines());
-      setIsLogDialogOpen(false);
-      setStatusMessage(
-        `Posted ${validLines.length} movement${
-          validLines.length === 1 ? "" : "s"
-        } at ${new Date().toLocaleTimeString()}`
-      );
       await refreshInventory();
     } catch (error) {
       console.error("Failed to post inventory transaction:", error);
       setErrorMessage(
-        error instanceof Error ? error.message : "Failed to post inventory movement."
+        error instanceof Error ? error.message : "Failed to save inventory movement."
       );
       setStatusMessage("");
     } finally {
       setIsPostingTransaction(false);
     }
   }
-
   if (isLoading) {
     return (
       <section className="rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)] p-8 text-[var(--foreground)]">
@@ -359,7 +477,7 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
           {activeTab === "logs" ? (
             <button
               type="button"
-              onClick={() => setIsLogDialogOpen(true)}
+              onClick={handleOpenCreateLogDialog}
               className="rounded-2xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
             >
               Add Inventory Log
@@ -387,7 +505,11 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
             onLineChange={handleLineChange}
             onAddLine={handleAddLine}
             onDeleteLine={handleDeleteLine}
-            onCloseLogDialog={() => setIsLogDialogOpen(false)}
+            editingTransactionId={editingTransactionId}
+            isDeletingTransactionId={isDeletingTransactionId}
+            onEditTransaction={handleEditTransaction}
+            onDeleteTransaction={handleDeleteTransaction}
+            onCloseLogDialog={handleCloseLogDialog}
             onSubmit={handlePostTransaction}
           />
         ) : (
@@ -437,6 +559,8 @@ type InventoryLogsPanelProps = {
   isLogDialogOpen: boolean;
   isPostingTransaction: boolean;
   statusMessage: string;
+  editingTransactionId: number | null;
+  isDeletingTransactionId: number | null;
   onTransactionDateChange: (value: string) => void;
   onLineChange: (
     rowId: number,
@@ -445,6 +569,8 @@ type InventoryLogsPanelProps = {
   ) => void;
   onAddLine: () => void;
   onDeleteLine: (rowId: number) => void;
+  onEditTransaction: (transaction: SiteInventoryTransaction) => void;
+  onDeleteTransaction: (transactionId: number) => Promise<void>;
   onCloseLogDialog: () => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 };
@@ -458,10 +584,14 @@ function InventoryLogsPanel({
   isLogDialogOpen,
   isPostingTransaction,
   statusMessage,
+  editingTransactionId,
+  isDeletingTransactionId,
   onTransactionDateChange,
   onLineChange,
   onAddLine,
   onDeleteLine,
+  onEditTransaction,
+  onDeleteTransaction,
   onCloseLogDialog,
   onSubmit,
 }: InventoryLogsPanelProps) {
@@ -479,9 +609,11 @@ function InventoryLogsPanel({
             <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-[var(--subtle)]">
-                  New Movement
+                  {editingTransactionId ? "Edit Movement" : "New Movement"}
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold">Add Inventory Log</h2>
+                <h2 className="mt-2 text-2xl font-semibold">
+                  {editingTransactionId ? "Edit Inventory Log" : "Add Inventory Log"}
+                </h2>
                 <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">
                   Supplier-to-site entries add stock to the receiving site. Site-to-site
                   transfers subtract from the origin site and add to the destination site.
@@ -498,183 +630,193 @@ function InventoryLogsPanel({
               </button>
             </div>
 
-        <form onSubmit={onSubmit} className="space-y-6">
-          <div className="max-w-sm">
-            <Field label="Transaction Date" required>
-              <Input
-                type="date"
-                value={transactionDate}
-                onChange={(event) => onTransactionDateChange(event.target.value)}
-              />
-            </Field>
-          </div>
-
-          <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4">
-              <div>
-                <h4 className="text-lg font-semibold">Inventory Rows</h4>
-                <p className="text-sm text-[var(--muted)]">
-                  Each filled row posts as its own movement, so From, To, challan,
-                  vehicle, and remarks can differ row by row.
-                </p>
+            <form onSubmit={onSubmit} className="space-y-6">
+              <div className="max-w-sm">
+                <Field label="Transaction Date" required>
+                  <Input
+                    type="date"
+                    value={transactionDate}
+                    onChange={(event) => onTransactionDateChange(event.target.value)}
+                  />
+                </Field>
               </div>
 
-              <button
-                type="button"
-                onClick={onAddLine}
-                className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
-              >
-                Add Row
-              </button>
-            </div>
+              <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-4">
+                  <div>
+                    <h4 className="text-lg font-semibold">Inventory Rows</h4>
+                    <p className="text-sm text-[var(--muted)]">
+                      Each filled row posts as its own movement, so From, To, challan,
+                      vehicle, and remarks can differ row by row.
+                    </p>
+                  </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1650px] table-fixed border-collapse text-left text-sm">
-              <thead className="bg-[var(--surface)]">
-                <tr>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">From</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">To</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Item</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Qty</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Unit</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Challan / Bill</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Vehicle</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Remarks</th>
-                  <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border)]">
-                {lineDrafts.map((line) => (
-                  <tr key={line.id}>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <select
-                        value={line.fromSourceId}
-                        onChange={(event) =>
-                          onLineChange(line.id, "fromSourceId", event.target.value)
-                        }
-                        className={compactSelectClassName}
-                      >
-                        <option value="">Select source</option>
-                        {sources.map((source) => (
-                          <option key={source.id} value={String(source.id)}>
-                            {source.sourceName} ({source.sourceType})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <select
-                        value={line.toSourceId}
-                        onChange={(event) =>
-                          onLineChange(line.id, "toSourceId", event.target.value)
-                        }
-                        className={compactSelectClassName}
-                      >
-                        <option value="">Select destination</option>
-                        {sources.map((source) => (
-                          <option key={source.id} value={String(source.id)}>
-                            {source.sourceName} ({source.sourceType})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <select
-                        value={line.itemId}
-                        onChange={(event) =>
-                          onLineChange(line.id, "itemId", event.target.value)
-                        }
-                        className={compactSelectClassName}
-                      >
-                        <option value="">Select item</option>
-                        {items.map((item) => (
-                          <option key={item.id} value={String(item.id)}>
-                            {item.itemName}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <Input
-                        value={line.quantity}
-                        onChange={(event) =>
-                          onLineChange(line.id, "quantity", event.target.value)
-                        }
-                        inputMode="decimal"
-                        placeholder="0"
-                        className="h-10 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <select
-                        value={line.unit}
-                        onChange={(event) =>
-                          onLineChange(line.id, "unit", event.target.value)
-                        }
-                        className={compactSelectClassName}
-                      >
-                        {inventoryUnits.map((unit) => (
-                          <option key={unit} value={unit}>{unit}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <Input
-                        value={line.challanBillNo}
-                        onChange={(event) =>
-                          onLineChange(line.id, "challanBillNo", event.target.value)
-                        }
-                        placeholder="Challan / bill"
-                        className="h-10 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <Input
-                        value={line.vehicleNumber}
-                        onChange={(event) =>
-                          onLineChange(line.id, "vehicleNumber", event.target.value)
-                        }
-                        placeholder="Vehicle no."
-                        className="h-10 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <Input
-                        value={line.remarks}
-                        onChange={(event) =>
-                          onLineChange(line.id, "remarks", event.target.value)
-                        }
-                        placeholder="Line remarks"
-                        className="h-10 rounded-lg px-3 py-2 text-sm"
-                      />
-                    </td>
-                    <td className="border border-[var(--border)] px-2 py-1">
-                      <button
-                        type="button"
-                        onClick={() => onDeleteLine(line.id)}
-                        className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              </table>
-            </div>
-          </div>
+                  <button
+                    type="button"
+                    onClick={onAddLine}
+                    className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                  >
+                    Add Row
+                  </button>
+                </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            {statusMessage ? <span className="text-sm text-[var(--muted)]">{statusMessage}</span> : null}
-            <button
-              type="submit"
-              disabled={isPostingTransaction}
-              className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isPostingTransaction ? "Posting..." : "Post Inventory Log"}
-            </button>
-          </div>
-        </form>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[1650px] table-fixed border-collapse text-left text-sm">
+                    <thead className="bg-[var(--surface)]">
+                      <tr>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">From</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">To</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Item</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Qty</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Unit</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Challan / Bill</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Vehicle</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Remarks</th>
+                        <th className="border border-[var(--border)] px-3 py-3 text-[11px] uppercase tracking-[0.14em] text-[var(--subtle)]">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[var(--border)]">
+                      {lineDrafts.map((line) => (
+                        <tr key={line.id}>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <select
+                              value={line.fromSourceId}
+                              onChange={(event) =>
+                                onLineChange(line.id, "fromSourceId", event.target.value)
+                              }
+                              className={compactSelectClassName}
+                            >
+                              <option value="">Select source</option>
+                              {sources.map((source) => (
+                                <option key={source.id} value={String(source.id)}>
+                                  {source.sourceName} ({source.sourceType})
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <select
+                              value={line.toSourceId}
+                              onChange={(event) =>
+                                onLineChange(line.id, "toSourceId", event.target.value)
+                              }
+                              className={compactSelectClassName}
+                            >
+                              <option value="">Select destination</option>
+                              {sources.map((source) => (
+                                <option key={source.id} value={String(source.id)}>
+                                  {source.sourceName} ({source.sourceType})
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <select
+                              value={line.itemId}
+                              onChange={(event) =>
+                                onLineChange(line.id, "itemId", event.target.value)
+                              }
+                              className={compactSelectClassName}
+                            >
+                              <option value="">Select item</option>
+                              {items.map((item) => (
+                                <option key={item.id} value={String(item.id)}>
+                                  {item.itemName}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <Input
+                              value={line.quantity}
+                              onChange={(event) =>
+                                onLineChange(line.id, "quantity", event.target.value)
+                              }
+                              inputMode="decimal"
+                              placeholder="0"
+                              className="h-10 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <select
+                              value={line.unit}
+                              onChange={(event) =>
+                                onLineChange(line.id, "unit", event.target.value)
+                              }
+                              className={compactSelectClassName}
+                            >
+                              {inventoryUnits.map((unit) => (
+                                <option key={unit} value={unit}>
+                                  {unit}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <Input
+                              value={line.challanBillNo}
+                              onChange={(event) =>
+                                onLineChange(line.id, "challanBillNo", event.target.value)
+                              }
+                              placeholder="Challan / bill"
+                              className="h-10 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <Input
+                              value={line.vehicleNumber}
+                              onChange={(event) =>
+                                onLineChange(line.id, "vehicleNumber", event.target.value)
+                              }
+                              placeholder="Vehicle no."
+                              className="h-10 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <Input
+                              value={line.remarks}
+                              onChange={(event) =>
+                                onLineChange(line.id, "remarks", event.target.value)
+                              }
+                              placeholder="Line remarks"
+                              className="h-10 rounded-lg px-3 py-2 text-sm"
+                            />
+                          </td>
+                          <td className="border border-[var(--border)] px-2 py-1">
+                            <button
+                              type="button"
+                              onClick={() => onDeleteLine(line.id)}
+                              className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {statusMessage ? (
+                  <span className="text-sm text-[var(--muted)]">{statusMessage}</span>
+                ) : null}
+                <button
+                  type="submit"
+                  disabled={isPostingTransaction}
+                  className="rounded-2xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPostingTransaction
+                    ? editingTransactionId
+                      ? "Saving..."
+                      : "Posting..."
+                    : editingTransactionId
+                      ? "Save Changes"
+                      : "Post Inventory Log"}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       ) : null}
@@ -693,7 +835,7 @@ function InventoryLogsPanel({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1280px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1420px] border-collapse text-left text-sm">
               <thead className="bg-[var(--surface)]">
                 <tr>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Date</th>
@@ -704,12 +846,15 @@ function InventoryLogsPanel({
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Challan / Bill</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Vehicle</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Remarks</th>
+                  <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)]">
                 {transactions.map((transaction) => (
                   <tr key={transaction.id}>
-                    <td className="px-3 py-3 text-[var(--muted)]">{formatDate(transaction.transactionDate)}</td>
+                    <td className="px-3 py-3 text-[var(--muted)]">
+                      {formatDate(transaction.transactionDate)}
+                    </td>
                     <td className="px-3 py-3">
                       {transaction.fromSourceName}
                       <p className="text-xs text-[var(--subtle)]">{transaction.fromSourceType}</p>
@@ -721,7 +866,9 @@ function InventoryLogsPanel({
                     <td className="px-3 py-3 text-[var(--muted)]">
                       <div className="space-y-1">
                         {transaction.lines.map((line) => (
-                          <p key={line.id}>{line.itemName}: {formatQuantity(line.quantity)} {line.unit}</p>
+                          <p key={line.id}>
+                            {line.itemName}: {formatQuantity(line.quantity)} {line.unit}
+                          </p>
                         ))}
                       </div>
                     </td>
@@ -732,9 +879,43 @@ function InventoryLogsPanel({
                         ))}
                       </div>
                     </td>
-                    <td className="px-3 py-3 text-[var(--muted)]">{transaction.challanBillNo || "--"}</td>
-                    <td className="px-3 py-3 text-[var(--muted)]">{transaction.vehicleNumber || "--"}</td>
-                    <td className="px-3 py-3 text-[var(--muted)]">{transaction.remarks || "--"}</td>
+                    <td className="px-3 py-3 text-[var(--muted)]">
+                      {transaction.challanBillNo || "--"}
+                    </td>
+                    <td className="px-3 py-3 text-[var(--muted)]">
+                      {transaction.vehicleNumber || "--"}
+                    </td>
+                    <td className="px-3 py-3 text-[var(--muted)]">
+                      {transaction.remarks || "--"}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => onEditTransaction(transaction)}
+                          disabled={
+                            isPostingTransaction || isDeletingTransactionId === transaction.id
+                          }
+                          className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium transition duration-200 hover:cursor-pointer hover:border-[var(--border-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {editingTransactionId === transaction.id && isLogDialogOpen
+                            ? "Editing..."
+                            : "Edit"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void onDeleteTransaction(transaction.id)}
+                          disabled={
+                            isDeletingTransactionId === transaction.id || isPostingTransaction
+                          }
+                          className="rounded-xl border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isDeletingTransactionId === transaction.id
+                            ? "Deleting..."
+                            : "Delete"}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -745,7 +926,6 @@ function InventoryLogsPanel({
     </div>
   );
 }
-
 type ActualInventoryPanelProps = {
   sites: SiteInventorySource[];
   items: SiteInventoryItem[];
@@ -1366,6 +1546,12 @@ function formatDateTime(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
+
+
+
+
+
+
 
 
 

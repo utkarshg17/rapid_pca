@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -85,6 +89,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "C1018",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType: body.projectDetails?.superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["brick", "brick work", "brickwork", "brick masonry", "mortar"],
@@ -142,7 +154,7 @@ export async function POST(request: Request) {
         "No user-entered interior brickwork description provided. Assume a standard interior brickwork system suitable for the project location.",
       notes: [
         "Prepare separate rows for Exterior Brickwork and Interior Brickwork.",
-        "Do not jump directly to total quantity. For each row, first estimate a practical benchmark unit quantity in cu.m per sq.ft of GFA based on project type, floor range, and building configuration, then multiply that benchmark by GFA to get the final total quantity.",
+        "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the combined brickwork quantity-per-GFA benchmark, then split that combined benchmark between Exterior Brickwork and Interior Brickwork based on project inputs.",
         `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
         "Estimate the brickwork quantity in cu.m for each row using the project details, area takeoffs, and finishes.",
         "If the user has not provided a finish description, assume a location-appropriate standard brickwork system.",
@@ -151,11 +163,13 @@ export async function POST(request: Request) {
         "Return practical conceptual costs per cu.m for material, labour, and equipment.",
         "Equipment may be 0 when clearly not applicable.",
         "Assume Indian construction context.",
+        ...buildBenchmarkPromptNotes(benchmarkContext),
         ...buildDsrPromptNotes("INR per cu.m"),
         ...buildPricingFallbackPromptNotes("INR per cu.m"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    benchmarkContext,
     dsrReferenceRates,
     webPricingContext,
     areaTakeoffs: body.areaTakeoffs,
@@ -179,7 +193,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual brick work cost draft for estimator review. Use the project details, area takeoffs, and finish descriptions when available. Do not estimate the total quantity directly. For each row, first infer a realistic benchmark cu.m per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Estimate realistic separate brickwork quantities in cu.m for Exterior Brickwork and Interior Brickwork, practical per-cu.m material, labour, and equipment costs in INR, and keep assumptions short and specific. Material cost must include both bricks and mortar. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual brick work cost draft for estimator review. Use the project details, area takeoffs, finish descriptions, and benchmarkContext when available. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the combined brickwork quantity-per-GFA anchor, then split that combined quantity between Exterior Brickwork and Interior Brickwork based on project inputs. Estimate realistic separate brickwork quantities in cu.m for Exterior Brickwork and Interior Brickwork, practical per-cu.m material, labour, and equipment costs in INR, and keep assumptions short and specific. Material cost must include both bricks and mortar. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",

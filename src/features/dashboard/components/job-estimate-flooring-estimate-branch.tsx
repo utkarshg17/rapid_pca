@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
+import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
 import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
@@ -44,6 +44,7 @@ type JobEstimateFlooringEstimateBranchProps = {
   savedById: string | null;
   savedByName: string;
   registerBulkGenerate?: RegisterBulkGenerateDraft;
+  registerBulkSave?: RegisterBulkSaveDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -90,6 +91,7 @@ export function JobEstimateFlooringEstimateBranch({
   savedById,
   savedByName,
   registerBulkGenerate,
+  registerBulkSave,
 }: JobEstimateFlooringEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [projectDetails, setProjectDetails] =
@@ -190,6 +192,10 @@ export function JobEstimateFlooringEstimateBranch({
     await handleGenerateDraft();
   });
 
+  const handleBulkSaveChanges = useEffectEvent(async () => {
+    await handleSaveChanges();
+  });
+
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
@@ -205,6 +211,23 @@ export function JobEstimateFlooringEstimateBranch({
       registerBulkGenerate(null);
     };
   }, [registerBulkGenerate]);
+
+  useEffect(() => {
+    if (!registerBulkSave) {
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      registerBulkSave(null);
+      return;
+    }
+
+    registerBulkSave(() => handleBulkSaveChanges());
+
+    return () => {
+      registerBulkSave(null);
+    };
+  }, [registerBulkSave, hasUnsavedChanges]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -402,7 +425,7 @@ export function JobEstimateFlooringEstimateBranch({
             <JobEstimateHierarchyNode
               level={itemOnly ? 0 : 3}
               label={hierarchy.item}
-              meta={`Item â€¢ ${hierarchy.costCode}`}
+              meta={`Item - ${hierarchy.costCode}`}
               badge={buildEstimateBadges({
                 totalCost: branchTotal,
                 totalQuantity,
@@ -661,7 +684,7 @@ function buildStatusLabel(row: {
     return row.status;
   }
 
-  return `${row.status} â€¢ ${row.confidence} confidence`;
+  return `${row.status} - ${row.confidence} confidence`;
 }
 
 function buildStatusClassName(confidence: FlooringReviewRow["confidence"]) {
@@ -767,6 +790,9 @@ function createSignature(rows: FlooringReviewRow[]) {
     }))
   );
 }
+
+
+
 
 
 

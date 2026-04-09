@@ -1,9 +1,12 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { UserProfile } from "@/features/auth/services/get-current-user-profile";
-import type { BulkGenerateDraftHandler } from "@/features/dashboard/components/job-estimate-bulk-draft";
+import type {
+  BulkGenerateDraftHandler,
+  BulkSaveDraftHandler,
+} from "@/features/dashboard/components/job-estimate-bulk-draft";
 import {
   formatAreaNumber,
   formatCurrencyNumber,
@@ -20,6 +23,7 @@ import {
 import { JobEstimateElectricalCondutingEstimateBranch } from "@/features/dashboard/components/job-estimate-electrical-conduting-estimate-branch";
 import {
   JobEstimateElectricalFixturesEstimateBranch,
+  JobEstimateFireProtectionDistributionAndStorageEstimateBranch,
   JobEstimatePlumbingFixturesEstimateBranch,
 } from "@/features/dashboard/components/job-estimate-gfa-fixture-estimate-branch";
 import { JobEstimateRegularStairEstimateBranch } from "@/features/dashboard/components/job-estimate-regular-stair-estimate-branch";
@@ -31,6 +35,8 @@ import { JobEstimateInteriorPaintEstimateBranch } from "@/features/dashboard/com
 import { JobEstimateInteriorDoorsEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-doors-estimate-branch";
 import { JobEstimateInteriorWindowsEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-windows-estimate-branch";
 import { JobEstimateInteriorPlasterEstimateBranch } from "@/features/dashboard/components/job-estimate-interior-plaster-estimate-branch";
+import { JobEstimateClearingAndGrubbingEstimateBranch } from "@/features/dashboard/components/job-estimate-clearing-and-grubbing-estimate-branch";
+import { JobEstimateRoofWaterproofingEstimateBranch } from "@/features/dashboard/components/job-estimate-roof-waterproofing-estimate-branch";
 import { JobEstimateUpperFloorsConstructionEstimateBranch } from "@/features/dashboard/components/job-estimate-upper-floors-construction-estimate-branch";
 import { JobEstimateVerticalStructuralElementsEstimateBranch } from "@/features/dashboard/components/job-estimate-vertical-structural-elements-estimate-branch";
 import { getJobEstimateProjectDetails } from "@/features/dashboard/services/get-job-estimate-project-details";
@@ -47,6 +53,7 @@ const initialBranchTotals = {
   verticalStructuralElements: 0,
   exteriorPlaster: 0,
   exteriorPaint: 0,
+  roofWaterproofing: 0,
   interiorWindows: 0,
   brickWork: 0,
   regularStair: 0,
@@ -58,6 +65,8 @@ const initialBranchTotals = {
   plumbingPipe: 0,
   electricalConduting: 0,
   electricalFixtures: 0,
+  clearingAndGrubbing: 0,
+  fireProtectionDistributionAndStorage: 0,
   architecturalDesign: 0,
   interiorDesignServices: 0,
   structuralEngineering: 0,
@@ -73,6 +82,7 @@ const detailedEstimateBranchOrder: DetailedEstimateBranchKey[] = [
   "verticalStructuralElements",
   "exteriorPlaster",
   "exteriorPaint",
+  "roofWaterproofing",
   "interiorWindows",
   "brickWork",
   "regularStair",
@@ -84,12 +94,42 @@ const detailedEstimateBranchOrder: DetailedEstimateBranchKey[] = [
   "plumbingPipe",
   "electricalConduting",
   "electricalFixtures",
+  "clearingAndGrubbing",
+  "fireProtectionDistributionAndStorage",
   "architecturalDesign",
   "interiorDesignServices",
   "structuralEngineering",
   "mepEngineering",
   "fireProtectionDesign",
 ];
+
+const detailedEstimateBranchLabels: Record<DetailedEstimateBranchKey, string> = {
+  columnFoundationsFootings: "Column Foundations + Footings",
+  upperFloorsConstruction: "Upper Floors Construction (Slab + Beam)",
+  verticalStructuralElements: "Vertical Structural Elements",
+  exteriorPlaster: "Exterior Plaster",
+  exteriorPaint: "Exterior Paint",
+  roofWaterproofing: "Roof Waterproofing",
+  interiorWindows: "Interior Windows",
+  brickWork: "Brick Work",
+  regularStair: "Regular Stair",
+  interiorDoors: "Interior Doors",
+  interiorPlaster: "Interior Plaster",
+  interiorPaint: "Interior Paint",
+  flooring: "Flooring",
+  plumbingFixtures: "Plumbing Fixtures",
+  plumbingPipe: "Plumbing Pipe",
+  electricalConduting: "Electrical Conduting",
+  electricalFixtures: "Electrical Fixtures",
+  clearingAndGrubbing: "Clearing and Grubbing",
+  fireProtectionDistributionAndStorage:
+    "Fire Protection Distribution and Storage",
+  architecturalDesign: "Architectural Design",
+  interiorDesignServices: "Interior Design Services",
+  structuralEngineering: "Structural Engineering",
+  mepEngineering: "MEP Engineering",
+  fireProtectionDesign: "Fire Protection Design",
+};
 
 export function JobEstimateDetailedEstimatePanel({
   estimate,
@@ -98,10 +138,25 @@ export function JobEstimateDetailedEstimatePanel({
   const [grossFloorArea, setGrossFloorArea] = useState(0);
   const [areItemsExpanded, setAreItemsExpanded] = useState(true);
   const [isGeneratingAllDrafts, setIsGeneratingAllDrafts] = useState(false);
+  const [bulkGenerateProgress, setBulkGenerateProgress] = useState({
+    current: 0,
+    total: 0,
+    label: "",
+  });
+  const [isSavingAllChanges, setIsSavingAllChanges] = useState(false);
+  const [bulkSaveProgress, setBulkSaveProgress] = useState({
+    current: 0,
+    total: 0,
+    label: "",
+  });
+  const [saveableBranchCount, setSaveableBranchCount] = useState(0);
   const [itemViewVersion, setItemViewVersion] = useState(0);
   const [branchTotals, setBranchTotals] = useState(initialBranchTotals);
   const bulkGenerateHandlersRef = useRef<
     Partial<Record<DetailedEstimateBranchKey, BulkGenerateDraftHandler>>
+  >({});
+  const bulkSaveHandlersRef = useRef<
+    Partial<Record<DetailedEstimateBranchKey, BulkSaveDraftHandler>>
   >({});
 
   const estimatedProjectCost = useMemo(
@@ -182,25 +237,106 @@ export function JobEstimateDetailedEstimatePanel({
     delete bulkGenerateHandlersRef.current[key];
   }
 
+  function handleRegisterBulkSave(
+    key: DetailedEstimateBranchKey,
+    handler: BulkSaveDraftHandler | null
+  ) {
+    if (handler) {
+      bulkSaveHandlersRef.current[key] = handler;
+    } else {
+      delete bulkSaveHandlersRef.current[key];
+    }
+
+    setSaveableBranchCount(Object.keys(bulkSaveHandlersRef.current).length);
+  }
+
   async function handleGenerateAllDrafts() {
     if (isGeneratingAllDrafts) {
       return;
     }
 
+    const availableDrafts = detailedEstimateBranchOrder.flatMap((key) => {
+      const handler = bulkGenerateHandlersRef.current[key];
+
+      if (!handler) {
+        return [];
+      }
+
+      return [{ key, handler }];
+    });
+
+    if (availableDrafts.length === 0) {
+      return;
+    }
+
     setIsGeneratingAllDrafts(true);
+    setBulkGenerateProgress({
+      current: 0,
+      total: availableDrafts.length,
+      label: "Preparing estimate packages...",
+    });
 
     try {
-      for (const key of detailedEstimateBranchOrder) {
-        const handler = bulkGenerateHandlersRef.current[key];
-
-        if (!handler) {
-          continue;
-        }
-
-        await handler();
+      for (const [index, draft] of availableDrafts.entries()) {
+        setBulkGenerateProgress({
+          current: index + 1,
+          total: availableDrafts.length,
+          label: detailedEstimateBranchLabels[draft.key],
+        });
+        await draft.handler();
       }
     } finally {
       setIsGeneratingAllDrafts(false);
+      setBulkGenerateProgress({
+        current: 0,
+        total: 0,
+        label: "",
+      });
+    }
+  }
+
+  async function handleSaveAllChanges() {
+    if (isSavingAllChanges) {
+      return;
+    }
+
+    const availableSaves = detailedEstimateBranchOrder.flatMap((key) => {
+      const handler = bulkSaveHandlersRef.current[key];
+
+      if (!handler) {
+        return [];
+      }
+
+      return [{ key, handler }];
+    });
+
+    if (availableSaves.length === 0) {
+      return;
+    }
+
+    setIsSavingAllChanges(true);
+    setBulkSaveProgress({
+      current: 0,
+      total: availableSaves.length,
+      label: "Preparing estimate saves...",
+    });
+
+    try {
+      for (const [index, draft] of availableSaves.entries()) {
+        setBulkSaveProgress({
+          current: index + 1,
+          total: availableSaves.length,
+          label: detailedEstimateBranchLabels[draft.key],
+        });
+        await draft.handler();
+      }
+    } finally {
+      setIsSavingAllChanges(false);
+      setBulkSaveProgress({
+        current: 0,
+        total: 0,
+        label: "",
+      });
     }
   }
 
@@ -218,7 +354,10 @@ export function JobEstimateDetailedEstimatePanel({
               review. Right now the workspace includes separate draft branches
               for Column Foundations + Footings, Upper Floors Construction (Slab + Beam),
               Vertical Structural Elements, Exterior Plaster, Exterior Paint,
-              Interior Windows, Brick Work, Regular Stair, Interior Doors, Interior Plaster, Interior Paint, Flooring, Plumbing Fixtures, Plumbing Pipe, Electrical Conduting, Electrical Fixtures, and design-service branches, and the
+              Roof Waterproofing, Interior Windows, Brick Work, Regular Stair,
+              Interior Doors, Interior Plaster, Interior Paint, Flooring,
+              Plumbing Fixtures, Plumbing Pipe, Electrical Conduting,
+              Electrical Fixtures, Clearing and Grubbing, Fire Protection Distribution and Storage, and design-service branches, and the
               returned values remain editable for the estimator.
             </p>
           </div>
@@ -296,15 +435,100 @@ export function JobEstimateDetailedEstimatePanel({
             <button
               type="button"
               onClick={() => void handleGenerateAllDrafts()}
-              disabled={isGeneratingAllDrafts}
+              disabled={isGeneratingAllDrafts || isSavingAllChanges}
               className="rounded-2xl border border-[var(--border)] bg-[var(--inverse-bg)] px-4 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isGeneratingAllDrafts
                 ? "Generating AI Draft..."
                 : "Generate AI Draft"}
             </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveAllChanges()}
+              disabled={
+                isSavingAllChanges ||
+                isGeneratingAllDrafts ||
+                saveableBranchCount === 0
+              }
+              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-sm font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingAllChanges
+                ? "Saving All Changes..."
+                : "Save All Changes"}
+            </button>
           </div>
         </div>
+
+        {isGeneratingAllDrafts ? (
+          <div className="mt-5 rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-bg)] p-4 text-[var(--status-info-fg)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 inline-block h-5 w-5 animate-spin rounded-full border-2 border-[var(--status-info-border)] border-t-transparent"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="text-sm font-semibold">Preparing AI estimates</p>
+                  <p className="text-sm">
+                    {bulkGenerateProgress.current > 0 &&
+                    bulkGenerateProgress.total > 0
+                      ? `Generating ${bulkGenerateProgress.current} of ${bulkGenerateProgress.total}: ${bulkGenerateProgress.label}`
+                      : "Preparing estimate packages..."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="w-full max-w-xs">
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--panel)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--status-info-fg)] transition-all duration-300"
+                    style={{
+                      width:
+                        bulkGenerateProgress.total > 0
+                          ? `${(bulkGenerateProgress.current / bulkGenerateProgress.total) * 100}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {isSavingAllChanges ? (
+          <div className="mt-5 rounded-2xl border border-[var(--status-success-border)] bg-[var(--status-success-bg)] p-4 text-[var(--status-success-fg)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <span
+                  className="mt-0.5 inline-block h-5 w-5 animate-spin rounded-full border-2 border-[var(--status-success-border)] border-t-transparent"
+                  aria-hidden="true"
+                />
+                <div>
+                  <p className="text-sm font-semibold">Saving estimate changes</p>
+                  <p className="text-sm">
+                    {bulkSaveProgress.current > 0 && bulkSaveProgress.total > 0
+                      ? `Saving ${bulkSaveProgress.current} of ${bulkSaveProgress.total}: ${bulkSaveProgress.label}`
+                      : "Saving changed estimate items..."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="w-full max-w-xs">
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--panel)]">
+                  <div
+                    className="h-full rounded-full bg-[var(--status-success-fg)] transition-all duration-300"
+                    style={{
+                      width:
+                        bulkSaveProgress.total > 0
+                          ? `${(bulkSaveProgress.current / bulkSaveProgress.total) * 100}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-6 space-y-6">
           <JobEstimateColumnFoundationsFootingsEstimateBranch
@@ -317,6 +541,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("columnFoundationsFootings", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("columnFoundationsFootings", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("columnFoundationsFootings", value)
@@ -333,6 +560,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("upperFloorsConstruction", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("upperFloorsConstruction", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("upperFloorsConstruction", value)
             }
@@ -347,6 +577,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("verticalStructuralElements", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("verticalStructuralElements", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("verticalStructuralElements", value)
@@ -363,6 +596,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("exteriorPlaster", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("exteriorPlaster", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("exteriorPlaster", value)
             }
@@ -378,8 +614,29 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("exteriorPaint", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("exteriorPaint", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("exteriorPaint", value)
+            }
+          />
+          <JobEstimateRoofWaterproofingEstimateBranch
+            key={`roof-waterproofing-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("roofWaterproofing", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("roofWaterproofing", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("roofWaterproofing", value)
             }
           />
           <JobEstimateInteriorWindowsEstimateBranch
@@ -392,6 +649,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("interiorWindows", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("interiorWindows", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("interiorWindows", value)
@@ -408,6 +668,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("brickWork", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("brickWork", handler)
+            }
             onTotalChange={(value) => handleBranchTotalChange("brickWork", value)}
           />
           <JobEstimateRegularStairEstimateBranch
@@ -420,6 +683,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("regularStair", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("regularStair", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("regularStair", value)
@@ -436,6 +702,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("interiorDoors", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("interiorDoors", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("interiorDoors", value)
             }
@@ -450,6 +719,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("interiorPlaster", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("interiorPlaster", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("interiorPlaster", value)
@@ -466,6 +738,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("interiorPaint", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("interiorPaint", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("interiorPaint", value)
             }
@@ -481,6 +756,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("flooring", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("flooring", handler)
+            }
             onTotalChange={(value) => handleBranchTotalChange("flooring", value)}
           />
           <JobEstimatePlumbingFixturesEstimateBranch
@@ -493,6 +771,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("plumbingFixtures", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("plumbingFixtures", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("plumbingFixtures", value)
@@ -509,6 +790,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("plumbingPipe", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("plumbingPipe", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("plumbingPipe", value)
             }
@@ -523,6 +807,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("electricalConduting", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("electricalConduting", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("electricalConduting", value)
@@ -539,8 +826,47 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("electricalFixtures", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("electricalFixtures", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("electricalFixtures", value)
+            }
+          />
+          <JobEstimateClearingAndGrubbingEstimateBranch
+            key={`clearing-and-grubbing-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("clearingAndGrubbing", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("clearingAndGrubbing", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("clearingAndGrubbing", value)
+            }
+          />
+          <JobEstimateFireProtectionDistributionAndStorageEstimateBranch
+            key={`fire-protection-distribution-and-storage-${itemViewVersion}-${areItemsExpanded ? "open" : "closed"}`}
+            estimate={estimate}
+            itemOnly
+            grossFloorArea={grossFloorArea}
+            defaultItemOpen={areItemsExpanded}
+            savedById={savedById}
+            savedByName={savedByName}
+            registerBulkGenerate={(handler) =>
+              handleRegisterBulkGenerate("fireProtectionDistributionAndStorage", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("fireProtectionDistributionAndStorage", handler)
+            }
+            onTotalChange={(value) =>
+              handleBranchTotalChange("fireProtectionDistributionAndStorage", value)
             }
           />
           <JobEstimateArchitecturalDesignEstimateBranch
@@ -553,6 +879,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("architecturalDesign", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("architecturalDesign", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("architecturalDesign", value)
@@ -569,6 +898,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("interiorDesignServices", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("interiorDesignServices", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("interiorDesignServices", value)
             }
@@ -583,6 +915,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("structuralEngineering", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("structuralEngineering", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("structuralEngineering", value)
@@ -599,6 +934,9 @@ export function JobEstimateDetailedEstimatePanel({
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("mepEngineering", handler)
             }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("mepEngineering", handler)
+            }
             onTotalChange={(value) =>
               handleBranchTotalChange("mepEngineering", value)
             }
@@ -613,6 +951,9 @@ export function JobEstimateDetailedEstimatePanel({
             savedByName={savedByName}
             registerBulkGenerate={(handler) =>
               handleRegisterBulkGenerate("fireProtectionDesign", handler)
+            }
+            registerBulkSave={(handler) =>
+              handleRegisterBulkSave("fireProtectionDesign", handler)
             }
             onTotalChange={(value) =>
               handleBranchTotalChange("fireProtectionDesign", value)
@@ -641,6 +982,14 @@ function parseOptionalNumber(value: string) {
   const parsed = Number.parseFloat(normalizedValue);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+
+
+
+
+
+
+
 
 
 

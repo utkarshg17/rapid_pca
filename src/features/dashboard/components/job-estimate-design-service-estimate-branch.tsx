@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
+import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
@@ -45,6 +45,7 @@ type JobEstimateDesignServiceEstimateBranchProps = {
   savedById: string | null;
   savedByName: string;
   registerBulkGenerate?: RegisterBulkGenerateDraft;
+  registerBulkSave?: RegisterBulkSaveDraft;
 };
 
 type DesignServiceBranchConfig = {
@@ -236,6 +237,7 @@ function JobEstimateDesignServiceEstimateBranch({
   savedById,
   savedByName,
   registerBulkGenerate,
+  registerBulkSave,
   config,
 }: JobEstimateDesignServiceEstimateBranchProps & { config: DesignServiceBranchConfig }) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
@@ -356,8 +358,14 @@ function JobEstimateDesignServiceEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRow), [reviewRow]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  
+
   const handleBulkGenerateDraft = useEffectEvent(async () => {
     await handleGenerateDraft();
+  });
+
+  const handleBulkSaveChanges = useEffectEvent(async () => {
+    await handleSaveChanges();
   });
 
   useEffect(() => {
@@ -375,6 +383,23 @@ function JobEstimateDesignServiceEstimateBranch({
       registerBulkGenerate(null);
     };
   }, [registerBulkGenerate]);
+
+  useEffect(() => {
+    if (!registerBulkSave) {
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      registerBulkSave(null);
+      return;
+    }
+
+    registerBulkSave(() => handleBulkSaveChanges());
+
+    return () => {
+      registerBulkSave(null);
+    };
+  }, [registerBulkSave, hasUnsavedChanges]);
 
   async function handleSaveChanges() {
     setIsSaving(true);

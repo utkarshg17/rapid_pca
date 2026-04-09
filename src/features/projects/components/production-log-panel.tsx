@@ -869,6 +869,7 @@ function ProductionLogEntriesTable({
                 {[
                   "Record Date",
                   "Sub-Contractor",
+                  "Charged Item",
                   "Trade",
                   "Man Hours",
                   "Quantity",
@@ -896,6 +897,9 @@ function ProductionLogEntriesTable({
                   </td>
                   <td className="px-4 py-4 font-medium">
                     {entry.subContractorName}
+                  </td>
+                  <td className="px-4 py-4 text-[var(--muted)]">
+                    {entry.item}
                   </td>
                   <td className="px-4 py-4 text-[var(--muted)]">
                     {entry.trade}

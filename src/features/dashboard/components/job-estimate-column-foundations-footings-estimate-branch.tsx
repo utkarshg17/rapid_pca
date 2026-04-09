@@ -3,7 +3,7 @@
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
+import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
 import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
@@ -44,6 +44,7 @@ type JobEstimateColumnFoundationsFootingsEstimateBranchProps = {
   savedById: string | null;
   savedByName: string;
   registerBulkGenerate?: RegisterBulkGenerateDraft;
+  registerBulkSave?: RegisterBulkSaveDraft;
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
@@ -102,6 +103,7 @@ export function JobEstimateColumnFoundationsFootingsEstimateBranch({
   savedById,
   savedByName,
   registerBulkGenerate,
+  registerBulkSave,
 }: JobEstimateColumnFoundationsFootingsEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
@@ -199,8 +201,14 @@ export function JobEstimateColumnFoundationsFootingsEstimateBranch({
   const currentSignature = useMemo(() => createSignature(reviewRow), [reviewRow]);
   const hasUnsavedChanges = currentSignature !== persistedSignature;
 
+  
+
   const handleBulkGenerateDraft = useEffectEvent(async () => {
     await handleGenerateDraft();
+  });
+
+  const handleBulkSaveChanges = useEffectEvent(async () => {
+    await handleSaveChanges();
   });
 
   useEffect(() => {
@@ -218,6 +226,23 @@ export function JobEstimateColumnFoundationsFootingsEstimateBranch({
       registerBulkGenerate(null);
     };
   }, [registerBulkGenerate]);
+
+  useEffect(() => {
+    if (!registerBulkSave) {
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      registerBulkSave(null);
+      return;
+    }
+
+    registerBulkSave(() => handleBulkSaveChanges());
+
+    return () => {
+      registerBulkSave(null);
+    };
+  }, [registerBulkSave, hasUnsavedChanges]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -420,7 +445,7 @@ export function JobEstimateColumnFoundationsFootingsEstimateBranch({
             <JobEstimateHierarchyNode
               level={itemOnly ? 0 : 3}
               label={hierarchy.item}
-              meta={`Item â€¢ ${hierarchy.costCode}`}
+              meta={`Item - ${hierarchy.costCode}`}
               badge={buildEstimateBadges({
                 totalCost: branchTotal,
                 totalQuantity,
@@ -685,7 +710,7 @@ function buildStatusLabel(row: {
     return row.status;
   }
 
-  return `${row.status} â€¢ ${row.confidence} confidence`;
+  return `${row.status} - ${row.confidence} confidence`;
 }
 
 function buildStatusClassName(
@@ -748,6 +773,9 @@ function buildReviewRow(
 function createSignature(row: ColumnFoundationsFootingsReviewRow) {
   return JSON.stringify(row);
 }
+
+
+
 
 
 

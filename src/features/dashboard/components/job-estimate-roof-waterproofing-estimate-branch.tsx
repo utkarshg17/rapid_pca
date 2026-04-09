@@ -6,28 +6,31 @@ import { Input } from "@/components/ui/input";
 import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
-import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
-import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
-import { getExteriorPaintCostCodeHierarchy } from "@/features/dashboard/services/get-exterior-paint-cost-code-hierarchy";
 import { getJobEstimateFinishes } from "@/features/dashboard/services/get-job-estimate-finishes";
+import { getJobEstimateOpenings } from "@/features/dashboard/services/get-job-estimate-openings";
 import { getJobEstimateProjectDetails } from "@/features/dashboard/services/get-job-estimate-project-details";
+import { getRoofWaterproofingCostCodeHierarchy } from "@/features/dashboard/services/get-roof-waterproofing-cost-code-hierarchy";
 import { saveJobEstimateDetailedItem } from "@/features/dashboard/services/save-job-estimate-detailed-item";
 import type {
   CostCodeHierarchyNode,
   JobEstimate,
   JobEstimateAreaTakeoff,
   JobEstimateFinish,
+  JobEstimateOpening,
   JobEstimateProjectDetails,
 } from "@/features/dashboard/types/job-estimate";
 
-type ExteriorPaintReviewRow = {
+type RoofWaterproofingReviewRow = {
   item: string;
   area: string;
-  finishDescription: string;
-  assumedFinishSystem: string;
+  areaSourceLabel: string;
+  roofContextDescription: string;
+  assumedWaterproofingSystem: string;
   materialCostPerSqft: string;
   labourCostPerSqft: string;
   equipmentCostPerSqft: string;
@@ -36,7 +39,14 @@ type ExteriorPaintReviewRow = {
   status: string;
 };
 
-type JobEstimateExteriorPaintEstimateBranchProps = {
+type RoofAreaContext = {
+  areaSqft: number;
+  sourceLabel: string;
+  description: string;
+  matchedRows: JobEstimateAreaTakeoff[];
+};
+
+type JobEstimateRoofWaterproofingEstimateBranchProps = {
   estimate: JobEstimate;
   itemOnly?: boolean;
   grossFloorArea: number;
@@ -51,9 +61,9 @@ type JobEstimateExteriorPaintEstimateBranchProps = {
 const defaultHierarchy: CostCodeHierarchyNode = {
   category: "Construction",
   subCategory: "Envelope",
-  subSubCategory: "Exterior Finishes",
-  item: "Exterior Paint",
-  costCode: "B2018",
+  subSubCategory: "Roofing & Waterproofing",
+  item: "Roof Waterproofing",
+  costCode: "B3017",
 };
 
 const emptyProjectDetails: JobEstimateProjectDetails = {
@@ -83,11 +93,20 @@ const emptyProjectDetails: JobEstimateProjectDetails = {
   createdAt: null,
 };
 
-const defaultReviewRow: ExteriorPaintReviewRow = {
-  item: "Exterior Paint",
+const emptyRoofAreaContext: RoofAreaContext = {
+  areaSqft: 0,
+  sourceLabel: "No roof area found",
+  description:
+    "No terrace or roof takeoff rows or superstructure footprint are available yet.",
+  matchedRows: [],
+};
+
+const defaultReviewRow: RoofWaterproofingReviewRow = {
+  item: "Roof Waterproofing",
   area: "",
-  finishDescription: "",
-  assumedFinishSystem: "Pending AI",
+  areaSourceLabel: emptyRoofAreaContext.sourceLabel,
+  roofContextDescription: emptyRoofAreaContext.description,
+  assumedWaterproofingSystem: "Pending AI",
   materialCostPerSqft: "",
   labourCostPerSqft: "",
   equipmentCostPerSqft: "",
@@ -96,7 +115,7 @@ const defaultReviewRow: ExteriorPaintReviewRow = {
   status: "Awaiting draft",
 };
 
-export function JobEstimateExteriorPaintEstimateBranch({
+export function JobEstimateRoofWaterproofingEstimateBranch({
   estimate,
   itemOnly = false,
   grossFloorArea,
@@ -106,14 +125,17 @@ export function JobEstimateExteriorPaintEstimateBranch({
   savedByName,
   registerBulkGenerate,
 registerBulkSave,
-}: JobEstimateExteriorPaintEstimateBranchProps) {
+}: JobEstimateRoofWaterproofingEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
+  const [openings, setOpenings] = useState<JobEstimateOpening[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
   const [projectDetails, setProjectDetails] =
     useState<JobEstimateProjectDetails>(emptyProjectDetails);
-  const [hierarchy, setHierarchy] = useState<CostCodeHierarchyNode>(defaultHierarchy);
+  const [hierarchy, setHierarchy] = useState<CostCodeHierarchyNode>(
+    defaultHierarchy
+  );
   const [reviewRow, setReviewRow] =
-    useState<ExteriorPaintReviewRow>(defaultReviewRow);
+    useState<RoofWaterproofingReviewRow>(defaultReviewRow);
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [generationError, setGenerationError] = useState("");
@@ -136,34 +158,44 @@ registerBulkSave,
       try {
         const [
           loadedAreaTakeoffs,
+          loadedOpenings,
           loadedFinishes,
           loadedProjectDetails,
           loadedHierarchy,
           savedEstimate,
         ] = await Promise.all([
           getJobEstimateAreaTakeoffs(estimate.id),
+          getJobEstimateOpenings(estimate.id),
           getJobEstimateFinishes(estimate.id),
           getJobEstimateProjectDetails(estimate),
-          getExteriorPaintCostCodeHierarchy(),
-          getJobEstimateDetailedItem(estimate.id, "B2018"),
+          getRoofWaterproofingCostCodeHierarchy(),
+          getJobEstimateDetailedItem(estimate.id, "B3017"),
         ]);
 
         if (!isMounted) {
           return;
         }
 
+        const derivedRoofArea = deriveRoofAreaContext(
+          loadedAreaTakeoffs,
+          loadedProjectDetails
+        );
+
         setAreaTakeoffs(loadedAreaTakeoffs);
+        setOpenings(loadedOpenings);
         setFinishes(loadedFinishes);
         setProjectDetails(loadedProjectDetails);
         setHierarchy(loadedHierarchy);
-        const initialReviewRow = buildReviewRow(savedEstimate, finishDescriptionFromRows(loadedFinishes, "exterior paint"));
+
+        const initialReviewRow = buildReviewRow(savedEstimate, derivedRoofArea);
         setReviewRow(initialReviewRow);
         setPersistedSignature(createSignature(initialReviewRow));
       } catch (error) {
-        console.error("Failed to load exterior paint estimate branch:", error);
+        console.error("Failed to load roof waterproofing estimate branch:", error);
 
         if (isMounted) {
           setAreaTakeoffs([]);
+          setOpenings([]);
           setFinishes([]);
           setProjectDetails(emptyProjectDetails);
           setHierarchy(defaultHierarchy);
@@ -177,40 +209,49 @@ registerBulkSave,
       }
     }
 
-    loadBranch();
+    void loadBranch();
 
     return () => {
       isMounted = false;
     };
   }, [estimate]);
 
-  const sourceRows = useMemo(
-    () =>
-      areaTakeoffs.filter(
-        (row) => row.roomType.trim() || row.area.trim() || row.floorFinish.trim()
-      ),
-    [areaTakeoffs]
+  const roofAreaContext = useMemo(
+    () => deriveRoofAreaContext(areaTakeoffs, projectDetails),
+    [areaTakeoffs, projectDetails]
   );
 
-  const finishDescription = useMemo(
+  const sourceOpenings = useMemo(
     () =>
-      finishes
-        .filter(
-          (row) =>
-            row.finishType.trim().toLowerCase() === "exterior paint" &&
-            row.description.trim()
-        )
-        .map((row) => row.description.trim())
-        .join("\n\n"),
-    [finishes]
+      openings.filter(
+        (row) =>
+          row.openingName.trim() ||
+          row.height.trim() ||
+          row.width.trim() ||
+          row.quantity.trim() ||
+          row.description.trim()
+      ),
+    [openings]
   );
 
   useEffect(() => {
-    setReviewRow((previousRow) => ({
-      ...previousRow,
-      finishDescription,
-    }));
-  }, [finishDescription]);
+    setReviewRow((previousRow) => {
+      if (parseOptionalNumber(previousRow.area) > 0) {
+        return {
+          ...previousRow,
+          areaSourceLabel: roofAreaContext.sourceLabel,
+          roofContextDescription: roofAreaContext.description,
+        };
+      }
+
+      return {
+        ...previousRow,
+        area: formatAreaValue(roofAreaContext.areaSqft),
+        areaSourceLabel: roofAreaContext.sourceLabel,
+        roofContextDescription: roofAreaContext.description,
+      };
+    });
+  }, [roofAreaContext]);
 
   const branchTotal = useMemo(() => calculateRowTotal(reviewRow), [reviewRow]);
   const totalQuantity = useMemo(
@@ -262,7 +303,6 @@ registerBulkSave,
       registerBulkSave(null);
     };
   }, [registerBulkSave, hasUnsavedChanges]);
-
   async function handleSaveChanges() {
     setIsSaving(true);
     setSaveErrorMessage("");
@@ -271,8 +311,8 @@ registerBulkSave,
     try {
       await saveJobEstimateDetailedItem({
         jobEstimateId: estimate.id,
-        costCode: "B2018",
-        itemName: "Exterior Paint",
+        costCode: "B3017",
+        itemName: "Roof Waterproofing",
         unit: "sq.ft",
         gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
@@ -281,17 +321,20 @@ registerBulkSave,
         savedByName,
         rows: [
           {
-            rowKey: "b2018-main",
-            rowLabel: "Exterior Paint",
+            rowKey: "b3017-main",
+            rowLabel: "Roof Waterproofing",
             quantity: parseOptionalNumber(reviewRow.area),
-          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(reviewRow.area), grossFloorArea),
-          unit: "sq.ft",
+            quantityPerGfa: calculateQuantityPerGfa(
+              parseOptionalNumber(reviewRow.area),
+              grossFloorArea
+            ),
+            unit: "sq.ft",
             materialCostPerUnit: parseOptionalNumber(reviewRow.materialCostPerSqft),
             labourCostPerUnit: parseOptionalNumber(reviewRow.labourCostPerSqft),
             equipmentCostPerUnit: parseOptionalNumber(reviewRow.equipmentCostPerSqft),
             totalCostPerUnit: calculateRatePerSqft(reviewRow),
             rowTotal: calculateRowTotal(reviewRow),
-            assumedSystem: reviewRow.assumedFinishSystem,
+            assumedSystem: reviewRow.assumedWaterproofingSystem,
             assumptions: reviewRow.assumptions,
             confidence: reviewRow.confidence,
             status: reviewRow.status,
@@ -314,16 +357,25 @@ registerBulkSave,
   }
 
   async function handleGenerateDraft() {
-    if (sourceRows.length === 0) {
+    const effectiveRoofArea =
+      parseOptionalNumber(reviewRow.area) > 0
+        ? parseOptionalNumber(reviewRow.area)
+        : roofAreaContext.areaSqft;
+
+    if (effectiveRoofArea <= 0) {
+      setGenerationError(
+        "Add a terrace or roof area in Area Takeoffs, fill in the superstructure footprint in Project Details, or enter the roof waterproofing area manually first."
+      );
+      setGenerationStatusMessage("");
       return;
     }
 
     setIsGeneratingDraft(true);
     setGenerationError("");
-    setGenerationStatusMessage("Generating exterior paint draft...");
+    setGenerationStatusMessage("Generating roof waterproofing draft...");
 
     try {
-      const response = await fetch("/api/job-estimates/exterior-plaster-draft", {
+      const response = await fetch("/api/job-estimates/roof-waterproofing-draft", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -348,12 +400,30 @@ registerBulkSave,
             stiltFloorCount: projectDetails.stiltFloorCount,
             floorCount: projectDetails.floorCount,
           },
-          areaTakeoffs: sourceRows.map((row) => ({
+          roofArea: {
+            areaSqft: effectiveRoofArea,
+            sourceLabel: reviewRow.areaSourceLabel || roofAreaContext.sourceLabel,
+            description:
+              reviewRow.roofContextDescription || roofAreaContext.description,
+            matchedRows: roofAreaContext.matchedRows.map((row) => ({
+              roomType: row.roomType,
+              areaSqft: parseOptionalNumber(row.area),
+              floorFinish: row.floorFinish,
+            })),
+          },
+          areaTakeoffs: areaTakeoffs.map((row) => ({
             roomType: row.roomType,
             areaSqft: parseOptionalNumber(row.area),
             floorFinish: row.floorFinish,
           })),
-          finishDescription,
+          openings: sourceOpenings.map((row) => ({
+            openingType: row.openingType,
+            openingName: row.openingName,
+            heightMm: parseOptionalNumber(row.height),
+            widthMm: parseOptionalNumber(row.width),
+            quantity: parseOptionalNumber(row.quantity),
+            description: row.description,
+          })),
           allFinishes: finishes.map((row) => ({
             finishType: row.finishType,
             description: row.description,
@@ -361,31 +431,31 @@ registerBulkSave,
         }),
       });
 
-      const payload = await parseDraftResponse<
-        {
-          item?: string;
-          areaSqft?: number;
-          assumedFinishSystem?: string;
-          materialCostPerSqft?: number;
-          labourCostPerSqft?: number;
-          equipmentCostPerSqft?: number;
-          assumptions?: string;
-          confidence?: "low" | "medium" | "high";
-          error?: string;
-        }
-      >(response, "Failed to generate exterior paint draft.");
+      const payload = await parseDraftResponse<{
+        item?: string;
+        areaSqft?: number;
+        assumedWaterproofingSystem?: string;
+        materialCostPerSqft?: number;
+        labourCostPerSqft?: number;
+        equipmentCostPerSqft?: number;
+        assumptions?: string;
+        confidence?: "low" | "medium" | "high";
+        error?: string;
+      }>(response, "Failed to generate roof waterproofing draft.");
 
       setReviewRow((previousRow) => ({
         ...previousRow,
-        item: payload?.item?.trim() || "Exterior Paint",
-        area: formatAreaValue(payload?.areaSqft ?? 0),
-        assumedFinishSystem: payload?.assumedFinishSystem?.trim() || "Pending AI",
+        item: payload?.item?.trim() || "Roof Waterproofing",
+        area: formatAreaValue(payload?.areaSqft ?? effectiveRoofArea),
+        areaSourceLabel: reviewRow.areaSourceLabel || roofAreaContext.sourceLabel,
+        roofContextDescription:
+          reviewRow.roofContextDescription || roofAreaContext.description,
+        assumedWaterproofingSystem:
+          payload?.assumedWaterproofingSystem?.trim() || "Pending AI",
         materialCostPerSqft: formatCurrencyNumber(
           payload?.materialCostPerSqft ?? 0
         ),
-        labourCostPerSqft: formatCurrencyNumber(
-          payload?.labourCostPerSqft ?? 0
-        ),
+        labourCostPerSqft: formatCurrencyNumber(payload?.labourCostPerSqft ?? 0),
         equipmentCostPerSqft: formatCurrencyNumber(
           payload?.equipmentCostPerSqft ?? 0
         ),
@@ -402,7 +472,7 @@ registerBulkSave,
       setGenerationError(
         error instanceof Error
           ? error.message
-          : "Failed to generate exterior paint draft."
+          : "Failed to generate roof waterproofing draft."
       );
       setGenerationStatusMessage("");
     } finally {
@@ -412,8 +482,11 @@ registerBulkSave,
 
   function handleRowChange(
     key: keyof Pick<
-      ExteriorPaintReviewRow,
-      "area" | "materialCostPerSqft" | "labourCostPerSqft" | "equipmentCostPerSqft"
+      RoofWaterproofingReviewRow,
+      | "area"
+      | "materialCostPerSqft"
+      | "labourCostPerSqft"
+      | "equipmentCostPerSqft"
     >,
     value: string
   ) {
@@ -426,11 +499,10 @@ registerBulkSave,
   if (isLoading) {
     return (
       <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 text-sm text-[var(--muted)]">
-        Loading Exterior Paint estimate branch...
+        Loading Roof Waterproofing estimate branch...
       </section>
     );
   }
-
   return (
     <div className="space-y-3">
       <JobEstimateHierarchyNode
@@ -477,11 +549,11 @@ registerBulkSave,
                       Review Table
                     </p>
                     <h4 className="text-lg font-semibold">
-                      Exterior Paint Cost Breakdown Review
+                      Roof Waterproofing Cost Breakdown Review
                     </h4>
                     <p className="text-sm text-[var(--muted)]">
-                      Generate a draft based on project details, area takeoffs, and
-                      the exterior paint finish description.
+                      Generate a draft using project details, area takeoffs,
+                      openings, finishes, and the roof or terrace area basis.
                     </p>
                   </div>
 
@@ -489,12 +561,15 @@ registerBulkSave,
                     <button
                       type="button"
                       onClick={() => void handleGenerateDraft()}
-                      disabled={sourceRows.length === 0 || isGeneratingDraft}
+                      disabled={
+                        parseOptionalNumber(reviewRow.area) <= 0 ||
+                        isGeneratingDraft
+                      }
                       className="rounded-2xl border border-[var(--border)] bg-[var(--inverse-bg)] px-4 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isGeneratingDraft
                         ? "Generating Draft..."
-                        : "Generate Exterior Paint Draft"}
+                        : "Generate Roof Waterproofing Draft"}
                     </button>
                     <button
                       type="button"
@@ -532,10 +607,10 @@ registerBulkSave,
                 ) : null}
 
                 <div className="mt-4 overflow-x-auto">
-                  <table className="min-w-[1040px] divide-y divide-[var(--border)] text-left text-sm">
+                  <table className="min-w-[1080px] divide-y divide-[var(--border)] text-left text-sm">
                     <thead className="bg-[var(--surface)]">
                       <tr>
-                        <th className="w-[28rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        <th className="w-[30rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -569,12 +644,13 @@ registerBulkSave,
                         <td className="px-3 py-3 align-top whitespace-normal break-words">
                           <p className="font-medium">{reviewRow.item}</p>
                           <p className="mt-1 text-xs text-[var(--muted)]">
-                            {reviewRow.assumedFinishSystem}
+                            {reviewRow.assumedWaterproofingSystem}
+                          </p>
+                          <p className="mt-2 text-xs text-[var(--muted)]">
+                            Area basis: {reviewRow.areaSourceLabel}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
-                            {reviewRow.finishDescription.trim()
-                              ? `Finish description: ${reviewRow.finishDescription}`
-                              : "No finish description entered. AI will assume a standard plaster finish based on project location."}
+                            {reviewRow.roofContextDescription}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                             {reviewRow.assumptions}
@@ -584,7 +660,9 @@ registerBulkSave,
                           <JobEstimateRatioInput
                             quantityValue={reviewRow.area}
                             grossFloorArea={grossFloorArea}
-                            onQuantityChange={(value) => handleRowChange("area", value)}
+                            onQuantityChange={(value) =>
+                              handleRowChange("area", value)
+                            }
                             className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
                           />
                         </td>
@@ -654,7 +732,7 @@ registerBulkSave,
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
                         <td className="px-3 py-3 font-semibold" colSpan={7}>
-                          Exterior Paint Branch Total
+                          Roof Waterproofing Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
                           INR {formatCurrencyNumber(branchTotal)}
@@ -671,6 +749,66 @@ registerBulkSave,
       </JobEstimateHierarchyNode>
     </div>
   );
+}
+function deriveRoofAreaContext(
+  areaTakeoffs: JobEstimateAreaTakeoff[],
+  projectDetails: JobEstimateProjectDetails
+): RoofAreaContext {
+  const matchedRows = areaTakeoffs.filter((row) => {
+    const areaSqft = parseOptionalNumber(row.area);
+
+    if (areaSqft <= 0) {
+      return false;
+    }
+
+    const searchableText = `${row.roomType} ${row.floorFinish}`.toLowerCase();
+    return searchableText.includes("roof") || searchableText.includes("terrace");
+  });
+
+  if (matchedRows.length > 0) {
+    const areaSqft = matchedRows.reduce(
+      (runningTotal, row) => runningTotal + parseOptionalNumber(row.area),
+      0
+    );
+    const description = matchedRows
+      .map((row) => {
+        const parts = [
+          row.roomType.trim() || "Roof/Terrace",
+          `${formatAreaValue(parseOptionalNumber(row.area))} sq.ft`,
+        ];
+
+        if (row.floorFinish.trim()) {
+          parts.push(`Finish: ${row.floorFinish.trim()}`);
+        }
+
+        return parts.join(" - ");
+      })
+      .join("\n");
+
+    return {
+      areaSqft,
+      sourceLabel: `From area takeoffs (${matchedRows.length} ${
+        matchedRows.length === 1 ? "row" : "rows"
+      })`,
+      description,
+      matchedRows,
+    };
+  }
+
+  const fallbackArea = parseOptionalNumber(projectDetails.superstructureFootprint);
+
+  if (fallbackArea > 0) {
+    return {
+      areaSqft: fallbackArea,
+      sourceLabel: "Fallback to superstructure footprint",
+      description: `No terrace or roof area takeoff rows were found, so the superstructure footprint of ${formatAreaValue(
+        fallbackArea
+      )} sq.ft is being used as the roof waterproofing area.`,
+      matchedRows: [],
+    };
+  }
+
+  return emptyRoofAreaContext;
 }
 
 function parseOptionalNumber(value: string) {
@@ -709,7 +847,7 @@ function calculateRowTotal(row: {
 }
 
 function buildStatusLabel(row: {
-  confidence: ExteriorPaintReviewRow["confidence"];
+  confidence: RoofWaterproofingReviewRow["confidence"];
   status: string;
 }) {
   if (row.confidence === "pending") {
@@ -719,7 +857,9 @@ function buildStatusLabel(row: {
   return `${row.status} - ${row.confidence} confidence`;
 }
 
-function buildStatusClassName(confidence: ExteriorPaintReviewRow["confidence"]) {
+function buildStatusClassName(
+  confidence: RoofWaterproofingReviewRow["confidence"]
+) {
   const baseClassName =
     "inline-flex rounded-full px-2.5 py-1 text-xs font-medium border whitespace-normal break-words leading-5";
 
@@ -737,7 +877,6 @@ function buildStatusClassName(confidence: ExteriorPaintReviewRow["confidence"]) 
 
   return `${baseClassName} border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info-fg)]`;
 }
-
 function formatCurrencyNumber(value: number) {
   return Number.isFinite(value)
     ? value.toLocaleString("en-IN", {
@@ -749,22 +888,25 @@ function formatCurrencyNumber(value: number) {
 
 function buildReviewRow(
   savedEstimate: Awaited<ReturnType<typeof getJobEstimateDetailedItem>>,
-  finishDescription: string
-): ExteriorPaintReviewRow {
+  roofAreaContext: RoofAreaContext
+): RoofWaterproofingReviewRow {
   const savedRow = savedEstimate?.rows[0];
 
   if (!savedRow) {
     return {
       ...defaultReviewRow,
-      finishDescription,
+      area: formatAreaValue(roofAreaContext.areaSqft),
+      areaSourceLabel: roofAreaContext.sourceLabel,
+      roofContextDescription: roofAreaContext.description,
     };
   }
 
   return {
-    item: savedEstimate?.item.itemName ?? "Exterior Paint",
+    item: savedEstimate?.item.itemName ?? "Roof Waterproofing",
     area: formatAreaValue(savedRow.quantity),
-    finishDescription,
-    assumedFinishSystem: savedRow.assumedSystem || "Pending AI",
+    areaSourceLabel: roofAreaContext.sourceLabel,
+    roofContextDescription: roofAreaContext.description,
+    assumedWaterproofingSystem: savedRow.assumedSystem || "Pending AI",
     materialCostPerSqft: formatCurrencyNumber(savedRow.materialCostPerUnit),
     labourCostPerSqft: formatCurrencyNumber(savedRow.labourCostPerUnit),
     equipmentCostPerSqft: formatCurrencyNumber(savedRow.equipmentCostPerUnit),
@@ -779,24 +921,11 @@ function buildReviewRow(
   };
 }
 
-function finishDescriptionFromRows(
-  finishes: JobEstimateFinish[],
-  finishType: string
-) {
-  return finishes
-    .filter(
-      (row) =>
-        row.finishType.trim().toLowerCase() === finishType && row.description.trim()
-    )
-    .map((row) => row.description.trim())
-    .join("\n\n");
-}
-
-function createSignature(row: ExteriorPaintReviewRow) {
+function createSignature(row: RoofWaterproofingReviewRow) {
   return JSON.stringify({
     item: row.item,
     area: row.area,
-    assumedFinishSystem: row.assumedFinishSystem,
+    assumedWaterproofingSystem: row.assumedWaterproofingSystem,
     materialCostPerSqft: row.materialCostPerSqft,
     labourCostPerSqft: row.labourCostPerSqft,
     equipmentCostPerSqft: row.equipmentCostPerSqft,
@@ -805,14 +934,5 @@ function createSignature(row: ExteriorPaintReviewRow) {
     status: row.status,
   });
 }
-
-
-
-
-
-
-
-
-
 
 

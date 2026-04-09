@@ -162,6 +162,18 @@ export type CreateSiteInventoryTransactionInput = {
     remarks: string;
   }>;
 };
-
-
-
+export type UpdateSiteInventoryTransactionInput = {
+  transactionId: number;
+  transactionDate: string;
+  fromSourceId: number;
+  toSourceId: number;
+  challanBillNo: string;
+  vehicleNumber: string;
+  remarks: string;
+  lines: Array<{
+    itemId: number;
+    quantity: number;
+    unit: SiteInventoryUnit;
+    remarks: string;
+  }>;
+};

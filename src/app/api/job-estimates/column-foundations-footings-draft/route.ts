@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -107,6 +111,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "A1012",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType: body.projectDetails?.superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["footing", "foundation", "concrete", "rcc", "reinforcement", "formwork", "shuttering"],
@@ -158,7 +170,7 @@ export async function POST(request: Request) {
       pricingBasis: "Conceptual estimate for bidding review",
       notes: [
         "Estimate only the concrete quantity in cu.m for column foundations and footings.",
-        "Do not jump directly to total quantity. First estimate a practical benchmark unit quantity in cu.m per sq.ft of GFA based on project type, floor range, and foundation system, then multiply that benchmark by GFA to get the final total quantity.",
+        "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the quantity benchmark and adjust only if the project inputs clearly justify it, then multiply that benchmark by GFA to get the final total quantity.",
         `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
         "If you derive any volume from footprint areas and assumed thicknesses or depths, convert sq.ft to sq.m first and convert any mm dimensions to meters before calculating cu.m.",
         "This item is applicable only when the project foundation type is Isolated Footing or Isolated Footing + Combined Footing.",
@@ -167,11 +179,13 @@ export async function POST(request: Request) {
         "Equipment cost per cu.m may include vibrator usage and any small foundation concreting equipment that is clearly applicable.",
         "Return practical conceptual costs in INR per cu.m.",
         "Assume Indian construction context.",
+        ...buildBenchmarkPromptNotes(benchmarkContext),
         ...buildDsrPromptNotes("INR per cu.m"),
         ...buildPricingFallbackPromptNotes("INR per cu.m"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    benchmarkContext,
     webPricingContext,
     dsrReferenceRates,
     areaTakeoffs: body.areaTakeoffs,
@@ -195,7 +209,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Column Foundations + Footings. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project, floor range, and foundation system, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, cover blocks, and miscellaneous consumables. Labour cost must include steel binding, formwork setup, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Column Foundations + Footings. Use the project details, area takeoffs, finishes, and benchmarkContext to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the default quantity anchor, adjust it only when the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, cover blocks, and miscellaneous consumables. Labour cost must include steel binding, formwork setup, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",

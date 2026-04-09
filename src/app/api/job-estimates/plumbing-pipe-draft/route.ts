@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -84,6 +88,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "D2024",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType: body.projectDetails?.superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["plumbing pipe", "pipe", "cpvc", "upvc", "gi pipe", "water supply", "drainage pipe"],
@@ -135,21 +147,25 @@ export async function POST(request: Request) {
       pricingBasis: "Conceptual estimate for bidding review",
       notes: [
         "Estimate the total plumbing pipe quantity in LF for the structure.",
-        "Do not jump directly to total quantity. First estimate the most appropriate benchmark LF per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final total quantity.",
+        "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the default LF-of-plumbing-pipe-per-sq.ft-of-GFA benchmark, adjust it only if the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final total quantity.",
         `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
+        "Explicitly interpret the benchmark ratio for D2024 as LF of plumbing pipe per sq.ft of GFA.",
         "This scope includes the plumbing piping network that runs through the structure.",
         "This scope excludes sanitary fixtures, taps, mixers, shower sets, WCs, basins, sinks, pumps, and other plumbing fixtures or equipment that belong in separate cost codes.",
         "Assume the piping runs through slabs, shafts, wet areas, and walls of the building where relevant.",
         "Material cost per LF should include pipes, fittings, bends, couplers, supports, and clearly necessary plumbing consumables for this scope.",
         "Labour cost per LF should include pipe laying, cutting, jointing, supports fixing, pressure-testing related effort where applicable, and associated plumbing labour for the piping scope.",
         "Equipment cost per LF may include threading tools, cutting tools, testing equipment, and other clearly applicable installation equipment. Use 0 when equipment is not meaningfully applicable.",
+        "This line item depends primarily on wet area density, toilets, kitchens, shafts, and plumbing service intensity.",
         "Return practical conceptual costs in INR per LF.",
         "Assume Indian construction context.",
+        ...buildBenchmarkPromptNotes(benchmarkContext),
         ...buildDsrPromptNotes("INR per LF"),
         ...buildPricingFallbackPromptNotes("INR per LF"),
         ...sharedUnitConsistencyNotes,
       ],
     },
+    benchmarkContext,
     dsrReferenceRates,
     webPricingContext,
     areaTakeoffs: body.areaTakeoffs,
@@ -173,7 +189,7 @@ export async function POST(request: Request) {
         {
           role: "system",
           content:
-            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Plumbing Pipe. Use the project details, area takeoffs, and finishes to estimate a realistic plumbing pipe quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. First infer the most appropriate LF per sq.ft of GFA benchmark for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. This scope includes the plumbing piping network only and excludes sanitary fixtures, taps, mixers, WCs, basins, sinks, pumps, and other fixtures or equipment. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
+            "You are an experienced Indian construction estimator preparing a conceptual cost draft for Plumbing Pipe. Use the project details, area takeoffs, finishes, and benchmarkContext to estimate a realistic plumbing pipe quantity in LF, and practical conceptual material, labour, and equipment costs in INR per LF. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the default LF-of-plumbing-pipe-per-sq.ft-of-GFA anchor, adjust it only when the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final quantity. This scope includes the plumbing piping network only and excludes sanitary fixtures, taps, mixers, WCs, basins, sinks, pumps, and other fixtures or equipment. Plumbing Pipe depends primarily on wet area density, toilets, kitchens, shafts, and plumbing service intensity. In assumptions, explicitly state the selected base ratio, applied foundation multiplier, applied superstructure multiplier, final ratio, and final estimated quantity. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema.",
         },
         {
           role: "user",

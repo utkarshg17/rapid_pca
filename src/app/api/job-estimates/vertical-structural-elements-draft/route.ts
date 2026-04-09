@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { calculateGrossFloorAreaSqft } from "@/app/api/job-estimates/shared-estimate-benchmark";
+import {
+  buildBenchmarkPromptNotes,
+  resolveEstimatingBenchmarkContext,
+} from "@/app/api/job-estimates/shared-estimating-secrets";
 import { buildDsrPromptNotes, fetchRelevantDsrRates } from "@/app/api/job-estimates/shared-dsr-rates";
 import { buildPricingFallbackPromptNotes, buildWebPricingContext } from "@/app/api/job-estimates/shared-web-pricing";
 import { sharedUnitConsistencyNotes } from "@/app/api/job-estimates/shared-unit-consistency";
@@ -88,6 +92,14 @@ export async function POST(request: Request) {
     stiltFloorCount: body.projectDetails?.stiltFloorCount,
     floorCount: body.projectDetails?.floorCount,
   });
+  const benchmarkContext = resolveEstimatingBenchmarkContext({
+    lineItemCode: "B1017",
+    projectType: body.estimate.projectType,
+    foundationType: body.projectDetails?.foundationType,
+    superstructureType,
+    stiltFloorCount: body.projectDetails?.stiltFloorCount,
+    floorCount: body.projectDetails?.floorCount,
+  });
 
   const dsrReferenceRates = await fetchRelevantDsrRates({
     searchTerms: ["column", "shear wall", "rcc", "concrete", "reinforcement", "formwork", "structural steel", "steel fabrication"],
@@ -140,20 +152,21 @@ export async function POST(request: Request) {
       notes: isSteelStructure
         ? [
             "The project superstructure type is Steel, so estimate the quantity in ton, not concrete volume.",
-            "Do not jump directly to total quantity. First estimate a practical benchmark unit quantity in ton per sq.ft of GFA based on project type, floor range, and structural system, then multiply that benchmark by GFA to get the final total quantity.",
+            "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the structural intensity anchor, convert that benchmark into a realistic ton-based quantity benchmark for the selected steel system, and then multiply by GFA to get the final total quantity.",
             `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
             "Material cost per ton should primarily include structural steel members and any clearly required steel components.",
             "Labour cost per ton should include fabrication, erection, welding or bolting support, and related structural steel labour.",
             "Equipment cost per ton should include the equipment typically required for steel structural work where clearly applicable.",
             "Return practical conceptual costs in INR per ton.",
             "Assume Indian construction context.",
+            ...buildBenchmarkPromptNotes(benchmarkContext),
             ...buildDsrPromptNotes(`INR per ${unit}`),
             ...buildPricingFallbackPromptNotes(`INR per ${unit}`),
             ...sharedUnitConsistencyNotes,
           ]
         : [
             "The project superstructure type is RCC-based, so estimate the quantity in cu.m of concrete.",
-            "Do not jump directly to total quantity. First estimate a practical benchmark unit quantity in cu.m per sq.ft of GFA based on project type, floor range, and structural system, then multiply that benchmark by GFA to get the final total quantity.",
+            "Do not jump directly to total quantity. Start from benchmarkContext.finalRatioPerSqftGfa as the quantity benchmark and adjust only if the project inputs clearly justify it, then multiply that benchmark by GFA to get the final total quantity.",
             `Use GFA = ${grossFloorAreaSqft.toFixed(2)} sq.ft, calculated as superstructure footprint x (stilt floor count + floor count).`,
             "If you derive any volume from areas and assumed member sizes, convert sq.ft to sq.m first and convert any mm dimensions to meters before calculating cu.m.",
             "Material cost per cu.m must include concrete, reinforcing steel, formwork, and miscellaneous supporting consumables.",
@@ -161,11 +174,13 @@ export async function POST(request: Request) {
             "Equipment cost per cu.m may include needle vibrator and any other clearly applicable RCC structural equipment.",
             "Return practical conceptual costs in INR per cu.m.",
             "Assume Indian construction context.",
+            ...buildBenchmarkPromptNotes(benchmarkContext),
             ...buildDsrPromptNotes(`INR per ${unit}`),
             ...buildPricingFallbackPromptNotes(`INR per ${unit}`),
             ...sharedUnitConsistencyNotes,
           ],
     },
+    benchmarkContext,
     webPricingContext,
     dsrReferenceRates,
     areaTakeoffs: body.areaTakeoffs,
@@ -189,8 +204,8 @@ export async function POST(request: Request) {
         {
           role: "system",
           content: isSteelStructure
-            ? "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in a steel structure. Use the project details, area takeoffs, and finishes to estimate a realistic steel quantity in ton, and practical conceptual material, labour, and equipment costs in INR per ton. Do not estimate the total quantity directly. First infer a realistic benchmark ton per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost should primarily cover structural steel. Labour cost should cover fabrication and erection labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
-            : "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in an RCC structure. Use the project details, area takeoffs, and finishes to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. First infer a realistic benchmark cu.m per sq.ft of GFA for this type of project and floor range, then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, and miscellaneous consumables. Labour cost must include rebar, formwork, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
+            ? "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in a steel structure. Use the project details, area takeoffs, finishes, and benchmarkContext to estimate a realistic steel quantity in ton, and practical conceptual material, labour, and equipment costs in INR per ton. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the structural intensity anchor, convert it into a realistic ton-based benchmark for the selected steel system, and then multiply by GFA to get the final quantity. Material cost should primarily cover structural steel. Labour cost should cover fabrication and erection labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
+            : "You are an experienced Indian construction estimator preparing a conceptual cost draft for Vertical Structural Elements in an RCC structure. Use the project details, area takeoffs, finishes, and benchmarkContext to estimate a realistic concrete quantity in cu.m, and practical conceptual material, labour, and equipment costs in INR per cu.m. Do not estimate the total quantity directly. Start from benchmarkContext.finalRatioPerSqftGfa as the default quantity anchor, adjust it only when the project inputs clearly justify it, and then multiply that benchmark by GFA to get the final quantity. Material cost must include concrete, steel, formwork, and miscellaneous consumables. Labour cost must include rebar, formwork, and concrete pouring labour. Use the provided dsrReferenceRates as the primary pricing anchor and return only valid JSON matching the schema."
         },
         {
           role: "user",

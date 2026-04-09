@@ -6,13 +6,14 @@ import { Input } from "@/components/ui/input";
 import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
-import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
-import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
+import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
+import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
+import { getClearingAndGrubbingCostCodeHierarchy } from "@/features/dashboard/services/get-clearing-and-grubbing-cost-code-hierarchy";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
-import { getExteriorPaintCostCodeHierarchy } from "@/features/dashboard/services/get-exterior-paint-cost-code-hierarchy";
 import { getJobEstimateFinishes } from "@/features/dashboard/services/get-job-estimate-finishes";
+import { getJobEstimateOpenings } from "@/features/dashboard/services/get-job-estimate-openings";
 import { getJobEstimateProjectDetails } from "@/features/dashboard/services/get-job-estimate-project-details";
 import { saveJobEstimateDetailedItem } from "@/features/dashboard/services/save-job-estimate-detailed-item";
 import type {
@@ -20,14 +21,16 @@ import type {
   JobEstimate,
   JobEstimateAreaTakeoff,
   JobEstimateFinish,
+  JobEstimateOpening,
   JobEstimateProjectDetails,
 } from "@/features/dashboard/types/job-estimate";
 
-type ExteriorPaintReviewRow = {
+type ClearingAndGrubbingReviewRow = {
   item: string;
   area: string;
-  finishDescription: string;
-  assumedFinishSystem: string;
+  areaSourceLabel: string;
+  siteContextDescription: string;
+  assumedSitePreparationScope: string;
   materialCostPerSqft: string;
   labourCostPerSqft: string;
   equipmentCostPerSqft: string;
@@ -36,7 +39,13 @@ type ExteriorPaintReviewRow = {
   status: string;
 };
 
-type JobEstimateExteriorPaintEstimateBranchProps = {
+type SiteAreaContext = {
+  areaSqft: number;
+  sourceLabel: string;
+  description: string;
+};
+
+type JobEstimateClearingAndGrubbingEstimateBranchProps = {
   estimate: JobEstimate;
   itemOnly?: boolean;
   grossFloorArea: number;
@@ -49,11 +58,11 @@ type JobEstimateExteriorPaintEstimateBranchProps = {
 };
 
 const defaultHierarchy: CostCodeHierarchyNode = {
-  category: "Construction",
-  subCategory: "Envelope",
-  subSubCategory: "Exterior Finishes",
-  item: "Exterior Paint",
-  costCode: "B2018",
+  category: "Site Preparation",
+  subCategory: "Pre-Construction",
+  subSubCategory: "Clearing & Grubbing",
+  item: "Clearing and Grubbing",
+  costCode: "G1011",
 };
 
 const emptyProjectDetails: JobEstimateProjectDetails = {
@@ -83,11 +92,18 @@ const emptyProjectDetails: JobEstimateProjectDetails = {
   createdAt: null,
 };
 
-const defaultReviewRow: ExteriorPaintReviewRow = {
-  item: "Exterior Paint",
+const emptySiteAreaContext: SiteAreaContext = {
+  areaSqft: 0,
+  sourceLabel: "No plot area found",
+  description: "No total plot area is available yet in Project Details.",
+};
+
+const defaultReviewRow: ClearingAndGrubbingReviewRow = {
+  item: "Clearing and Grubbing",
   area: "",
-  finishDescription: "",
-  assumedFinishSystem: "Pending AI",
+  areaSourceLabel: emptySiteAreaContext.sourceLabel,
+  siteContextDescription: emptySiteAreaContext.description,
+  assumedSitePreparationScope: "Pending AI",
   materialCostPerSqft: "",
   labourCostPerSqft: "",
   equipmentCostPerSqft: "",
@@ -96,7 +112,7 @@ const defaultReviewRow: ExteriorPaintReviewRow = {
   status: "Awaiting draft",
 };
 
-export function JobEstimateExteriorPaintEstimateBranch({
+export function JobEstimateClearingAndGrubbingEstimateBranch({
   estimate,
   itemOnly = false,
   grossFloorArea,
@@ -106,14 +122,15 @@ export function JobEstimateExteriorPaintEstimateBranch({
   savedByName,
   registerBulkGenerate,
 registerBulkSave,
-}: JobEstimateExteriorPaintEstimateBranchProps) {
+}: JobEstimateClearingAndGrubbingEstimateBranchProps) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
+  const [openings, setOpenings] = useState<JobEstimateOpening[]>([]);
   const [finishes, setFinishes] = useState<JobEstimateFinish[]>([]);
   const [projectDetails, setProjectDetails] =
     useState<JobEstimateProjectDetails>(emptyProjectDetails);
   const [hierarchy, setHierarchy] = useState<CostCodeHierarchyNode>(defaultHierarchy);
   const [reviewRow, setReviewRow] =
-    useState<ExteriorPaintReviewRow>(defaultReviewRow);
+    useState<ClearingAndGrubbingReviewRow>(defaultReviewRow);
   const [isLoading, setIsLoading] = useState(true);
   const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [generationError, setGenerationError] = useState("");
@@ -136,34 +153,41 @@ registerBulkSave,
       try {
         const [
           loadedAreaTakeoffs,
+          loadedOpenings,
           loadedFinishes,
           loadedProjectDetails,
           loadedHierarchy,
           savedEstimate,
         ] = await Promise.all([
           getJobEstimateAreaTakeoffs(estimate.id),
+          getJobEstimateOpenings(estimate.id),
           getJobEstimateFinishes(estimate.id),
           getJobEstimateProjectDetails(estimate),
-          getExteriorPaintCostCodeHierarchy(),
-          getJobEstimateDetailedItem(estimate.id, "B2018"),
+          getClearingAndGrubbingCostCodeHierarchy(),
+          getJobEstimateDetailedItem(estimate.id, "G1011"),
         ]);
 
         if (!isMounted) {
           return;
         }
 
+        const derivedSiteArea = deriveSiteAreaContext(loadedProjectDetails);
+
         setAreaTakeoffs(loadedAreaTakeoffs);
+        setOpenings(loadedOpenings);
         setFinishes(loadedFinishes);
         setProjectDetails(loadedProjectDetails);
         setHierarchy(loadedHierarchy);
-        const initialReviewRow = buildReviewRow(savedEstimate, finishDescriptionFromRows(loadedFinishes, "exterior paint"));
+
+        const initialReviewRow = buildReviewRow(savedEstimate, derivedSiteArea);
         setReviewRow(initialReviewRow);
         setPersistedSignature(createSignature(initialReviewRow));
       } catch (error) {
-        console.error("Failed to load exterior paint estimate branch:", error);
+        console.error("Failed to load clearing and grubbing estimate branch:", error);
 
         if (isMounted) {
           setAreaTakeoffs([]);
+          setOpenings([]);
           setFinishes([]);
           setProjectDetails(emptyProjectDetails);
           setHierarchy(defaultHierarchy);
@@ -177,40 +201,49 @@ registerBulkSave,
       }
     }
 
-    loadBranch();
+    void loadBranch();
 
     return () => {
       isMounted = false;
     };
   }, [estimate]);
 
-  const sourceRows = useMemo(
-    () =>
-      areaTakeoffs.filter(
-        (row) => row.roomType.trim() || row.area.trim() || row.floorFinish.trim()
-      ),
-    [areaTakeoffs]
+  const siteAreaContext = useMemo(
+    () => deriveSiteAreaContext(projectDetails),
+    [projectDetails]
   );
 
-  const finishDescription = useMemo(
+  const sourceOpenings = useMemo(
     () =>
-      finishes
-        .filter(
-          (row) =>
-            row.finishType.trim().toLowerCase() === "exterior paint" &&
-            row.description.trim()
-        )
-        .map((row) => row.description.trim())
-        .join("\n\n"),
-    [finishes]
+      openings.filter(
+        (row) =>
+          row.openingName.trim() ||
+          row.height.trim() ||
+          row.width.trim() ||
+          row.quantity.trim() ||
+          row.description.trim()
+      ),
+    [openings]
   );
 
   useEffect(() => {
-    setReviewRow((previousRow) => ({
-      ...previousRow,
-      finishDescription,
-    }));
-  }, [finishDescription]);
+    setReviewRow((previousRow) => {
+      if (parseOptionalNumber(previousRow.area) > 0) {
+        return {
+          ...previousRow,
+          areaSourceLabel: siteAreaContext.sourceLabel,
+          siteContextDescription: siteAreaContext.description,
+        };
+      }
+
+      return {
+        ...previousRow,
+        area: formatAreaValue(siteAreaContext.areaSqft),
+        areaSourceLabel: siteAreaContext.sourceLabel,
+        siteContextDescription: siteAreaContext.description,
+      };
+    });
+  }, [siteAreaContext]);
 
   const branchTotal = useMemo(() => calculateRowTotal(reviewRow), [reviewRow]);
   const totalQuantity = useMemo(
@@ -262,7 +295,6 @@ registerBulkSave,
       registerBulkSave(null);
     };
   }, [registerBulkSave, hasUnsavedChanges]);
-
   async function handleSaveChanges() {
     setIsSaving(true);
     setSaveErrorMessage("");
@@ -271,8 +303,8 @@ registerBulkSave,
     try {
       await saveJobEstimateDetailedItem({
         jobEstimateId: estimate.id,
-        costCode: "B2018",
-        itemName: "Exterior Paint",
+        costCode: "G1011",
+        itemName: "Clearing and Grubbing",
         unit: "sq.ft",
         gfaSnapshot: grossFloorArea,
         saveStatus: "reviewed",
@@ -281,17 +313,20 @@ registerBulkSave,
         savedByName,
         rows: [
           {
-            rowKey: "b2018-main",
-            rowLabel: "Exterior Paint",
+            rowKey: "g1011-main",
+            rowLabel: "Clearing and Grubbing",
             quantity: parseOptionalNumber(reviewRow.area),
-          quantityPerGfa: calculateQuantityPerGfa(parseOptionalNumber(reviewRow.area), grossFloorArea),
-          unit: "sq.ft",
+            quantityPerGfa: calculateQuantityPerGfa(
+              parseOptionalNumber(reviewRow.area),
+              grossFloorArea
+            ),
+            unit: "sq.ft",
             materialCostPerUnit: parseOptionalNumber(reviewRow.materialCostPerSqft),
             labourCostPerUnit: parseOptionalNumber(reviewRow.labourCostPerSqft),
             equipmentCostPerUnit: parseOptionalNumber(reviewRow.equipmentCostPerSqft),
             totalCostPerUnit: calculateRatePerSqft(reviewRow),
             rowTotal: calculateRowTotal(reviewRow),
-            assumedSystem: reviewRow.assumedFinishSystem,
+            assumedSystem: reviewRow.assumedSitePreparationScope,
             assumptions: reviewRow.assumptions,
             confidence: reviewRow.confidence,
             status: reviewRow.status,
@@ -314,16 +349,25 @@ registerBulkSave,
   }
 
   async function handleGenerateDraft() {
-    if (sourceRows.length === 0) {
+    const effectiveSiteArea =
+      parseOptionalNumber(reviewRow.area) > 0
+        ? parseOptionalNumber(reviewRow.area)
+        : siteAreaContext.areaSqft;
+
+    if (effectiveSiteArea <= 0) {
+      setGenerationError(
+        "Add the total plot area in Project Details or enter the site preparation area manually first."
+      );
+      setGenerationStatusMessage("");
       return;
     }
 
     setIsGeneratingDraft(true);
     setGenerationError("");
-    setGenerationStatusMessage("Generating exterior paint draft...");
+    setGenerationStatusMessage("Generating clearing and grubbing draft...");
 
     try {
-      const response = await fetch("/api/job-estimates/exterior-plaster-draft", {
+      const response = await fetch("/api/job-estimates/clearing-and-grubbing-draft", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -348,12 +392,25 @@ registerBulkSave,
             stiltFloorCount: projectDetails.stiltFloorCount,
             floorCount: projectDetails.floorCount,
           },
-          areaTakeoffs: sourceRows.map((row) => ({
+          siteArea: {
+            areaSqft: effectiveSiteArea,
+            sourceLabel: reviewRow.areaSourceLabel || siteAreaContext.sourceLabel,
+            description:
+              reviewRow.siteContextDescription || siteAreaContext.description,
+          },
+          areaTakeoffs: areaTakeoffs.map((row) => ({
             roomType: row.roomType,
             areaSqft: parseOptionalNumber(row.area),
             floorFinish: row.floorFinish,
           })),
-          finishDescription,
+          openings: sourceOpenings.map((row) => ({
+            openingType: row.openingType,
+            openingName: row.openingName,
+            heightMm: parseOptionalNumber(row.height),
+            widthMm: parseOptionalNumber(row.width),
+            quantity: parseOptionalNumber(row.quantity),
+            description: row.description,
+          })),
           allFinishes: finishes.map((row) => ({
             finishType: row.finishType,
             description: row.description,
@@ -361,31 +418,31 @@ registerBulkSave,
         }),
       });
 
-      const payload = await parseDraftResponse<
-        {
-          item?: string;
-          areaSqft?: number;
-          assumedFinishSystem?: string;
-          materialCostPerSqft?: number;
-          labourCostPerSqft?: number;
-          equipmentCostPerSqft?: number;
-          assumptions?: string;
-          confidence?: "low" | "medium" | "high";
-          error?: string;
-        }
-      >(response, "Failed to generate exterior paint draft.");
+      const payload = await parseDraftResponse<{
+        item?: string;
+        areaSqft?: number;
+        assumedSitePreparationScope?: string;
+        materialCostPerSqft?: number;
+        labourCostPerSqft?: number;
+        equipmentCostPerSqft?: number;
+        assumptions?: string;
+        confidence?: "low" | "medium" | "high";
+        error?: string;
+      }>(response, "Failed to generate clearing and grubbing draft.");
 
       setReviewRow((previousRow) => ({
         ...previousRow,
-        item: payload?.item?.trim() || "Exterior Paint",
-        area: formatAreaValue(payload?.areaSqft ?? 0),
-        assumedFinishSystem: payload?.assumedFinishSystem?.trim() || "Pending AI",
+        item: payload?.item?.trim() || "Clearing and Grubbing",
+        area: formatAreaValue(payload?.areaSqft ?? effectiveSiteArea),
+        areaSourceLabel: reviewRow.areaSourceLabel || siteAreaContext.sourceLabel,
+        siteContextDescription:
+          reviewRow.siteContextDescription || siteAreaContext.description,
+        assumedSitePreparationScope:
+          payload?.assumedSitePreparationScope?.trim() || "Pending AI",
         materialCostPerSqft: formatCurrencyNumber(
           payload?.materialCostPerSqft ?? 0
         ),
-        labourCostPerSqft: formatCurrencyNumber(
-          payload?.labourCostPerSqft ?? 0
-        ),
+        labourCostPerSqft: formatCurrencyNumber(payload?.labourCostPerSqft ?? 0),
         equipmentCostPerSqft: formatCurrencyNumber(
           payload?.equipmentCostPerSqft ?? 0
         ),
@@ -402,7 +459,7 @@ registerBulkSave,
       setGenerationError(
         error instanceof Error
           ? error.message
-          : "Failed to generate exterior paint draft."
+          : "Failed to generate clearing and grubbing draft."
       );
       setGenerationStatusMessage("");
     } finally {
@@ -412,7 +469,7 @@ registerBulkSave,
 
   function handleRowChange(
     key: keyof Pick<
-      ExteriorPaintReviewRow,
+      ClearingAndGrubbingReviewRow,
       "area" | "materialCostPerSqft" | "labourCostPerSqft" | "equipmentCostPerSqft"
     >,
     value: string
@@ -426,11 +483,10 @@ registerBulkSave,
   if (isLoading) {
     return (
       <section className="rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] p-4 text-sm text-[var(--muted)]">
-        Loading Exterior Paint estimate branch...
+        Loading Clearing and Grubbing estimate branch...
       </section>
     );
   }
-
   return (
     <div className="space-y-3">
       <JobEstimateHierarchyNode
@@ -477,11 +533,11 @@ registerBulkSave,
                       Review Table
                     </p>
                     <h4 className="text-lg font-semibold">
-                      Exterior Paint Cost Breakdown Review
+                      Clearing and Grubbing Cost Breakdown Review
                     </h4>
                     <p className="text-sm text-[var(--muted)]">
-                      Generate a draft based on project details, area takeoffs, and
-                      the exterior paint finish description.
+                      Generate a draft using project details, area takeoffs,
+                      openings, finishes, and the total plot area basis.
                     </p>
                   </div>
 
@@ -489,12 +545,15 @@ registerBulkSave,
                     <button
                       type="button"
                       onClick={() => void handleGenerateDraft()}
-                      disabled={sourceRows.length === 0 || isGeneratingDraft}
+                      disabled={
+                        parseOptionalNumber(reviewRow.area) <= 0 ||
+                        isGeneratingDraft
+                      }
                       className="rounded-2xl border border-[var(--border)] bg-[var(--inverse-bg)] px-4 py-2.5 text-sm font-medium text-[var(--inverse-fg)] transition duration-200 hover:scale-105 hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {isGeneratingDraft
                         ? "Generating Draft..."
-                        : "Generate Exterior Paint Draft"}
+                        : "Generate Clearing and Grubbing Draft"}
                     </button>
                     <button
                       type="button"
@@ -532,10 +591,10 @@ registerBulkSave,
                 ) : null}
 
                 <div className="mt-4 overflow-x-auto">
-                  <table className="min-w-[1040px] divide-y divide-[var(--border)] text-left text-sm">
+                  <table className="min-w-[1080px] divide-y divide-[var(--border)] text-left text-sm">
                     <thead className="bg-[var(--surface)]">
                       <tr>
-                        <th className="w-[28rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
+                        <th className="w-[30rem] px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
                           Item
                         </th>
                         <th className="w-[9rem] whitespace-nowrap px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">
@@ -569,12 +628,13 @@ registerBulkSave,
                         <td className="px-3 py-3 align-top whitespace-normal break-words">
                           <p className="font-medium">{reviewRow.item}</p>
                           <p className="mt-1 text-xs text-[var(--muted)]">
-                            {reviewRow.assumedFinishSystem}
+                            {reviewRow.assumedSitePreparationScope}
+                          </p>
+                          <p className="mt-2 text-xs text-[var(--muted)]">
+                            Area basis: {reviewRow.areaSourceLabel}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
-                            {reviewRow.finishDescription.trim()
-                              ? `Finish description: ${reviewRow.finishDescription}`
-                              : "No finish description entered. AI will assume a standard plaster finish based on project location."}
+                            {reviewRow.siteContextDescription}
                           </p>
                           <p className="mt-2 text-xs leading-5 text-[var(--subtle)] whitespace-pre-wrap">
                             {reviewRow.assumptions}
@@ -584,7 +644,9 @@ registerBulkSave,
                           <JobEstimateRatioInput
                             quantityValue={reviewRow.area}
                             grossFloorArea={grossFloorArea}
-                            onQuantityChange={(value) => handleRowChange("area", value)}
+                            onQuantityChange={(value) =>
+                              handleRowChange("area", value)
+                            }
                             className="h-10 min-w-[8rem] rounded-xl px-3 py-2 text-xs"
                           />
                         </td>
@@ -654,7 +716,7 @@ registerBulkSave,
                     <tfoot>
                       <tr className="bg-[var(--surface)]">
                         <td className="px-3 py-3 font-semibold" colSpan={7}>
-                          Exterior Paint Branch Total
+                          Clearing and Grubbing Branch Total
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap font-semibold text-[var(--foreground)]">
                           INR {formatCurrencyNumber(branchTotal)}
@@ -671,6 +733,22 @@ registerBulkSave,
       </JobEstimateHierarchyNode>
     </div>
   );
+}
+
+function deriveSiteAreaContext(
+  projectDetails: JobEstimateProjectDetails
+): SiteAreaContext {
+  const siteArea = parseOptionalNumber(projectDetails.totalPlotArea);
+
+  if (siteArea > 0) {
+    return {
+      areaSqft: siteArea,
+      sourceLabel: "From project details total plot area",
+      description: `The total plot area of ${formatAreaValue(siteArea)} sq.ft is being used as the clearing and grubbing area basis.`,
+    };
+  }
+
+  return emptySiteAreaContext;
 }
 
 function parseOptionalNumber(value: string) {
@@ -709,7 +787,7 @@ function calculateRowTotal(row: {
 }
 
 function buildStatusLabel(row: {
-  confidence: ExteriorPaintReviewRow["confidence"];
+  confidence: ClearingAndGrubbingReviewRow["confidence"];
   status: string;
 }) {
   if (row.confidence === "pending") {
@@ -719,7 +797,9 @@ function buildStatusLabel(row: {
   return `${row.status} - ${row.confidence} confidence`;
 }
 
-function buildStatusClassName(confidence: ExteriorPaintReviewRow["confidence"]) {
+function buildStatusClassName(
+  confidence: ClearingAndGrubbingReviewRow["confidence"]
+) {
   const baseClassName =
     "inline-flex rounded-full px-2.5 py-1 text-xs font-medium border whitespace-normal break-words leading-5";
 
@@ -749,22 +829,25 @@ function formatCurrencyNumber(value: number) {
 
 function buildReviewRow(
   savedEstimate: Awaited<ReturnType<typeof getJobEstimateDetailedItem>>,
-  finishDescription: string
-): ExteriorPaintReviewRow {
+  siteAreaContext: SiteAreaContext
+): ClearingAndGrubbingReviewRow {
   const savedRow = savedEstimate?.rows[0];
 
   if (!savedRow) {
     return {
       ...defaultReviewRow,
-      finishDescription,
+      area: formatAreaValue(siteAreaContext.areaSqft),
+      areaSourceLabel: siteAreaContext.sourceLabel,
+      siteContextDescription: siteAreaContext.description,
     };
   }
 
   return {
-    item: savedEstimate?.item.itemName ?? "Exterior Paint",
+    item: savedEstimate?.item.itemName ?? "Clearing and Grubbing",
     area: formatAreaValue(savedRow.quantity),
-    finishDescription,
-    assumedFinishSystem: savedRow.assumedSystem || "Pending AI",
+    areaSourceLabel: siteAreaContext.sourceLabel,
+    siteContextDescription: siteAreaContext.description,
+    assumedSitePreparationScope: savedRow.assumedSystem || "Pending AI",
     materialCostPerSqft: formatCurrencyNumber(savedRow.materialCostPerUnit),
     labourCostPerSqft: formatCurrencyNumber(savedRow.labourCostPerUnit),
     equipmentCostPerSqft: formatCurrencyNumber(savedRow.equipmentCostPerUnit),
@@ -779,24 +862,11 @@ function buildReviewRow(
   };
 }
 
-function finishDescriptionFromRows(
-  finishes: JobEstimateFinish[],
-  finishType: string
-) {
-  return finishes
-    .filter(
-      (row) =>
-        row.finishType.trim().toLowerCase() === finishType && row.description.trim()
-    )
-    .map((row) => row.description.trim())
-    .join("\n\n");
-}
-
-function createSignature(row: ExteriorPaintReviewRow) {
+function createSignature(row: ClearingAndGrubbingReviewRow) {
   return JSON.stringify({
     item: row.item,
     area: row.area,
-    assumedFinishSystem: row.assumedFinishSystem,
+    assumedSitePreparationScope: row.assumedSitePreparationScope,
     materialCostPerSqft: row.materialCostPerSqft,
     labourCostPerSqft: row.labourCostPerSqft,
     equipmentCostPerSqft: row.equipmentCostPerSqft,
@@ -805,14 +875,5 @@ function createSignature(row: ExteriorPaintReviewRow) {
     status: row.status,
   });
 }
-
-
-
-
-
-
-
-
-
 
 

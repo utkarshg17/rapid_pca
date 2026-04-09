@@ -1,16 +1,17 @@
-﻿
+
 "use client";
 
 import { useEffect, useEffectEvent, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import type { RegisterBulkGenerateDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
+import type { RegisterBulkGenerateDraft, RegisterBulkSaveDraft } from "@/features/dashboard/components/job-estimate-bulk-draft";
 import { buildEstimateBadges } from "@/features/dashboard/components/job-estimate-branch-metrics";
 import { parseDraftResponse } from "@/features/dashboard/components/job-estimate-draft-response";
 import { JobEstimateHierarchyNode } from "@/features/dashboard/components/job-estimate-hierarchy-node";
 import { calculateQuantityPerGfa } from "@/features/dashboard/components/job-estimate-quantity-metrics";
 import { JobEstimateRatioInput } from "@/features/dashboard/components/job-estimate-ratio-input";
 import { getElectricalFixturesCostCodeHierarchy } from "@/features/dashboard/services/get-electrical-fixtures-cost-code-hierarchy";
+import { getFireProtectionDistributionAndStorageCostCodeHierarchy } from "@/features/dashboard/services/get-fire-protection-distribution-and-storage-cost-code-hierarchy";
 import { getJobEstimateAreaTakeoffs } from "@/features/dashboard/services/get-job-estimate-area-takeoffs";
 import { getJobEstimateDetailedItem } from "@/features/dashboard/services/get-job-estimate-detailed-item";
 import { getJobEstimateFinishes } from "@/features/dashboard/services/get-job-estimate-finishes";
@@ -49,6 +50,7 @@ type JobEstimateGfaFixtureEstimateBranchProps = {
   savedById: string | null;
   savedByName: string;
   registerBulkGenerate?: RegisterBulkGenerateDraft;
+  registerBulkSave?: RegisterBulkSaveDraft;
 };
 
 type GfaFixtureBranchConfig = {
@@ -113,6 +115,30 @@ const plumbingFixturesConfig: GfaFixtureBranchConfig = {
   saveErrorMessage: "Failed to save plumbing fixtures estimate changes.",
 };
 
+const fireProtectionDistributionAndStorageConfig: GfaFixtureBranchConfig = {
+  itemName: "Fire Protection Distribution and Storage",
+  costCode: "G3014",
+  rowKey: "g3014-main",
+  endpoint: "/api/job-estimates/fire-protection-distribution-and-storage-draft",
+  defaultHierarchy: {
+    category: "Construction",
+    subCategory: "MEP",
+    subSubCategory: "Fire Protection",
+    item: "Fire Protection Distribution and Storage",
+    costCode: "G3014",
+  },
+  loadHierarchy: getFireProtectionDistributionAndStorageCostCodeHierarchy,
+  loadingLabel: "Loading Fire Protection Distribution and Storage estimate branch...",
+  reviewTitle: "Fire Protection Distribution and Storage Cost Breakdown Review",
+  reviewDescription:
+    "Generate a draft using project details, area takeoffs, finishes, and openings. Quantity is the GFA, and this scope covers internal fire protection distribution pipes, sprinklers, and related building fire-fighting equipment, not external site fire infrastructure.",
+  generateButtonLabel: "Generate Fire Protection Distribution Draft",
+  generatingMessage: "Generating fire protection distribution and storage draft...",
+  generateErrorMessage: "Failed to generate fire protection distribution and storage draft.",
+  saveErrorMessage:
+    "Failed to save fire protection distribution and storage estimate changes.",
+};
+
 const emptyProjectDetails: JobEstimateProjectDetails = {
   id: null,
   jobEstimateProjectId: 0,
@@ -152,6 +178,17 @@ export function JobEstimatePlumbingFixturesEstimateBranch(
   return <JobEstimateGfaFixtureEstimateBranch {...props} config={plumbingFixturesConfig} />;
 }
 
+export function JobEstimateFireProtectionDistributionAndStorageEstimateBranch(
+  props: JobEstimateGfaFixtureEstimateBranchProps
+) {
+  return (
+    <JobEstimateGfaFixtureEstimateBranch
+      {...props}
+      config={fireProtectionDistributionAndStorageConfig}
+    />
+  );
+}
+
 function JobEstimateGfaFixtureEstimateBranch({
   estimate,
   itemOnly = false,
@@ -161,6 +198,7 @@ function JobEstimateGfaFixtureEstimateBranch({
   savedById,
   savedByName,
   registerBulkGenerate,
+  registerBulkSave,
   config,
 }: JobEstimateGfaFixtureEstimateBranchProps & { config: GfaFixtureBranchConfig }) {
   const [areaTakeoffs, setAreaTakeoffs] = useState<JobEstimateAreaTakeoff[]>([]);
@@ -285,6 +323,9 @@ function JobEstimateGfaFixtureEstimateBranch({
     await handleGenerateDraft();
   });
 
+  const handleBulkSaveChanges = useEffectEvent(async () => {
+    await handleSaveChanges();
+  });
   useEffect(() => {
     onTotalChange?.(branchTotal);
   }, [branchTotal, onTotalChange]);
@@ -300,6 +341,23 @@ function JobEstimateGfaFixtureEstimateBranch({
       registerBulkGenerate(null);
     };
   }, [registerBulkGenerate]);
+
+  useEffect(() => {
+    if (!registerBulkSave) {
+      return;
+    }
+
+    if (!hasUnsavedChanges) {
+      registerBulkSave(null);
+      return;
+    }
+
+    registerBulkSave(() => handleBulkSaveChanges());
+
+    return () => {
+      registerBulkSave(null);
+    };
+  }, [registerBulkSave, hasUnsavedChanges]);
 
   async function handleSaveChanges() {
     setIsSaving(true);
@@ -851,3 +909,7 @@ function createSignature(row: GfaFixtureReviewRow) {
     status: row.status,
   });
 }
+
+
+
+

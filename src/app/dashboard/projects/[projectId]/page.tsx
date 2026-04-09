@@ -16,6 +16,7 @@ import { EditProjectDialog } from "@/features/projects/components/edit-project-d
 import { MusterRollPanel } from "@/features/projects/components/muster-roll-panel";
 import { ProductionLogPanel } from "@/features/projects/components/production-log-panel";
 import { ProjectAccessPanel } from "@/features/projects/components/project-access-panel";
+import { ProjectSiteInventoryPanel } from "@/features/projects/components/project-site-inventory-panel";
 import { UnitQuantitiesPanel } from "@/features/projects/components/unit-quantities-panel";
 import { getProjectById } from "@/features/projects/services/get-project-by-id";
 import type { ProjectRecord } from "@/features/projects/types/project";
@@ -23,7 +24,6 @@ import type { ProjectRecord } from "@/features/projects/types/project";
 type ProjectWorkspaceTab =
   | "overview"
   | "production-log"
-  | "resources"
   | "unit-quantities"
   | "muster-roll"
   | "site-inventory"
@@ -45,7 +45,6 @@ type ProjectPlaceholderPanelProps = {
 const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: "overview", label: "Overview" },
   { key: "production-log", label: "Production Log" },
-  { key: "resources", label: "Resources" },
   { key: "unit-quantities", label: "Unit Quantities" },
   { key: "muster-roll", label: "Muster Roll" },
   { key: "site-inventory", label: "Site Inventory" },
@@ -132,14 +131,6 @@ export default function ProjectWorkspacePage() {
             currentUser={profile}
           />
         );
-      case "resources":
-        return (
-          <ProjectPlaceholderPanel
-            eyebrow="Resources"
-            title="Resources are coming next"
-            description="This area will hold labor, equipment, materials, and any supporting project resource views."
-          />
-        );
       case "unit-quantities":
         return (
           <UnitQuantitiesPanel
@@ -155,13 +146,7 @@ export default function ProjectWorkspacePage() {
           />
         );
       case "site-inventory":
-        return (
-          <ProjectPlaceholderPanel
-            eyebrow="Site Inventory"
-            title="Site inventory is coming next"
-            description="This section is reserved for on-site material inventory, stock movement, and inventory status tracking."
-          />
-        );
+        return <ProjectSiteInventoryPanel project={project} />;
       case "project-charter":
         return (
           <ProjectCharterPanel
@@ -288,3 +273,4 @@ function ProjectPlaceholderPanel({
     </section>
   );
 }
+
