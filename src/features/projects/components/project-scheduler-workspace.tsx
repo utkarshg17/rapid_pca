@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -44,20 +51,30 @@ type ScheduleComputation = {
   totalCalendarDays: number;
 };
 
+type ScheduleComputationOptions = {
+  respectManualStartDates?: boolean;
+};
+
 type GanttConnection = {
   id: string;
+  fromActivityId: string;
+  toActivityId: string;
   fromRowIndex: number;
   toRowIndex: number;
   fromOffset: number;
   toOffset: number;
+  fromIsMilestone: boolean;
+  isCritical: boolean;
 };
 
 type GanttScale = "days" | "weeks";
 
 type ActivityType =
-  | "Task Dependency"
+  | "Task Dependent"
   | "Start Milestone"
   | "Finish Milestone";
+
+type RelationshipField = "predecessor" | "successor";
 
 type GanttColumn = {
   id: string;
@@ -73,6 +90,12 @@ type ActivityLateDates = {
   lateFinish: Date;
 };
 
+type GanttVisualBounds = {
+  startX: number;
+  endX: number;
+  isMilestone: boolean;
+};
+
 const dayWidth = 84;
 const weekWidth = 92;
 const rowHeight = 40;
@@ -80,8 +103,14 @@ const activityIdColumnWidth = 120;
 const activityNameColumnWidth = 190;
 const ganttBarInset = 10;
 const ganttArrowWidth = 8;
+const ganttLabelTailWidth = 300;
+const ganttMilestoneSize = 14;
+const ganttMinimumConnectorRun = 30;
+const ganttArrowTargetGap = 3;
+const ganttTightConnectorLoopWidth = 8;
+const ganttTightConnectorLaneOffset = 14;
 const activityTypes: ActivityType[] = [
-  "Task Dependency",
+  "Task Dependent",
   "Start Milestone",
   "Finish Milestone",
 ];
@@ -96,10 +125,18 @@ export function ProjectSchedulerWorkspace({
   const leftPaneRef = useRef<HTMLDivElement | null>(null);
   const rightPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollSyncSourceRef = useRef<"left" | "right" | null>(null);
+  const activityNameInputRefs = useRef(new Map<string, HTMLInputElement>());
+  const pendingActivityNameFocusRowKeyRef = useRef<string | null>(null);
   const [ganttScale, setGanttScale] = useState<GanttScale>("days");
   const [activities, setActivities] = useState<SchedulerActivity[]>(() =>
     buildStarterActivities(project.expected_start_date)
   );
+  const [relationshipDraftValues, setRelationshipDraftValues] = useState<
+    Record<string, string>
+  >({});
+  const [dateDraftValues, setDateDraftValues] = useState<
+    Record<string, string>
+  >({});
 
   const computedSchedule = useMemo(
     () => computeSchedule(activities, project.expected_start_date),
@@ -110,10 +147,42 @@ export function ProjectSchedulerWorkspace({
     [computedSchedule, ganttScale]
   );
   const ganttCellWidth = ganttScale === "days" ? dayWidth : weekWidth;
+  const ganttTimelineWidth = Math.max(
+    ganttColumns.length * ganttCellWidth,
+    720
+  );
+  const ganttContentWidth = ganttTimelineWidth + ganttLabelTailWidth;
   const ganttConnections = useMemo(
     () => buildGanttConnections(computedSchedule.activities, ganttColumns),
     [computedSchedule.activities, ganttColumns]
   );
+  const ganttVisualBoundsById = useMemo(
+    () =>
+      buildGanttVisualBounds(
+        computedSchedule.activities,
+        ganttColumns,
+        ganttCellWidth
+      ),
+    [computedSchedule.activities, ganttColumns, ganttCellWidth]
+  );
+
+  useEffect(() => {
+    const rowKey = pendingActivityNameFocusRowKeyRef.current;
+
+    if (!rowKey) {
+      return;
+    }
+
+    const activityNameInput = activityNameInputRefs.current.get(rowKey);
+
+    if (!activityNameInput) {
+      return;
+    }
+
+    pendingActivityNameFocusRowKeyRef.current = null;
+    activityNameInput.focus();
+    activityNameInput.select();
+  }, [activities]);
 
   const syncPaneScroll = useCallback((source: "left" | "right") => {
     const currentPane =
@@ -246,6 +315,55 @@ export function ProjectSchedulerWorkspace({
     });
   }
 
+  function handleRelationshipDraftChange(
+    rowKey: string,
+    field: RelationshipField,
+    nextValue: string
+  ) {
+    const draftKey = buildRelationshipDraftKey(rowKey, field);
+
+    setRelationshipDraftValues((currentDraftValues) => ({
+      ...currentDraftValues,
+      [draftKey]: nextValue,
+    }));
+  }
+
+  function clearRelationshipDraft(rowKey: string, field: RelationshipField) {
+    const draftKey = buildRelationshipDraftKey(rowKey, field);
+
+    setRelationshipDraftValues((currentDraftValues) => {
+      const nextDraftValues = { ...currentDraftValues };
+      delete nextDraftValues[draftKey];
+      return nextDraftValues;
+    });
+  }
+
+  function handleStartDateDraftChange(rowKey: string, nextValue: string) {
+    setDateDraftValues((currentDraftValues) => ({
+      ...currentDraftValues,
+      [rowKey]: nextValue,
+    }));
+
+    const parsedDate = parseDisplayDateInputToInputDate(nextValue);
+
+    if (!parsedDate) {
+      return;
+    }
+
+    updateActivity(rowKey, (currentActivity) => ({
+      ...currentActivity,
+      startDate: parsedDate,
+    }));
+  }
+
+  function clearStartDateDraft(rowKey: string) {
+    setDateDraftValues((currentDraftValues) => {
+      const nextDraftValues = { ...currentDraftValues };
+      delete nextDraftValues[rowKey];
+      return nextDraftValues;
+    });
+  }
+
   function handleActivityTypeChange(rowKey: string, nextValue: ActivityType) {
     updateActivity(rowKey, (activity) => ({
       ...activity,
@@ -264,16 +382,80 @@ export function ProjectSchedulerWorkspace({
 
     setActivities((currentActivities) => [
       ...currentActivities,
-      {
-        rowKey: createRowKey(),
-        activityId: buildNextActivityId(currentActivities),
-        activityName: "",
-        activityType: "Task Dependency",
-        startDate: addDaysToInputDate(latestFinish, 1),
-        durationDays: 5,
-        predecessorIds: [],
-      },
+      buildBlankActivity(currentActivities, addDaysToInputDate(latestFinish, 1)),
     ]);
+  }
+
+  function handleScheduleActivities() {
+    setActivities((currentActivities) => {
+      const logicOnlySchedule = computeSchedule(
+        currentActivities,
+        project.expected_start_date,
+        { respectManualStartDates: false }
+      );
+      const computedStartDatesByRowKey = new Map(
+        logicOnlySchedule.activities.map((activity) => [
+          activity.rowKey,
+          activity.computedStartDate,
+        ])
+      );
+
+      return currentActivities.map((activity) => ({
+        ...activity,
+        startDate:
+          computedStartDatesByRowKey.get(activity.rowKey) ??
+          activity.startDate,
+      }));
+    });
+    setDateDraftValues({});
+  }
+
+  function handleInsertActivityBelow(rowKey: string) {
+    setActivities((currentActivities) => {
+      const targetIndex = currentActivities.findIndex(
+        (activity) => activity.rowKey === rowKey
+      );
+
+      if (targetIndex < 0) {
+        return currentActivities;
+      }
+
+      const targetActivity = currentActivities[targetIndex];
+      const nextActivity = buildBlankActivity(
+        currentActivities,
+        addDaysToInputDate(
+          targetActivity.startDate,
+          Math.max(getActivityDurationDays(targetActivity), 1)
+        )
+      );
+
+      pendingActivityNameFocusRowKeyRef.current = nextActivity.rowKey;
+
+      return [
+        ...currentActivities.slice(0, targetIndex + 1),
+        nextActivity,
+        ...currentActivities.slice(targetIndex + 1),
+      ];
+    });
+  }
+
+  function handleActivityRowKeyDown(
+    event: KeyboardEvent<HTMLTableRowElement>,
+    rowKey: string
+  ) {
+    if (
+      event.key !== "Insert" ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    handleInsertActivityBelow(rowKey);
   }
 
   function handleDeleteActivity(rowKey: string) {
@@ -334,6 +516,13 @@ export function ProjectSchedulerWorkspace({
           </div>
           <button
             type="button"
+            onClick={handleScheduleActivities}
+            className="h-9 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-xs font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+          >
+            Schedule
+          </button>
+          <button
+            type="button"
             onClick={handleAddActivity}
             className="h-9 rounded-xl bg-green-600 px-4 text-xs font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
           >
@@ -354,12 +543,12 @@ export function ProjectSchedulerWorkspace({
                 <colgroup>
                   <col style={{ width: activityIdColumnWidth }} />
                   <col style={{ width: activityNameColumnWidth }} />
-                  <col style={{ width: "148px" }} />
                   <col style={{ width: "128px" }} />
                   <col style={{ width: "74px" }} />
                   <col style={{ width: "108px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "150px" }} />
+                  <col style={{ width: "148px" }} />
                   <col style={{ width: "76px" }} />
                 </colgroup>
                 <thead className="bg-[var(--panel)]">
@@ -377,9 +566,6 @@ export function ProjectSchedulerWorkspace({
                       Activity
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
-                      Activity Type
-                    </th>
-                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Start Date
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
@@ -395,6 +581,9 @@ export function ProjectSchedulerWorkspace({
                       Successor
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
+                      Activity Type
+                    </th>
+                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Action
                     </th>
                   </tr>
@@ -403,15 +592,27 @@ export function ProjectSchedulerWorkspace({
                 {computedSchedule.activities.map((activity) => {
                   const warningText = buildActivityIssueText(activity);
                   const activityTitle = buildActivityTitle(activity);
+                  const predecessorDraftKey = buildRelationshipDraftKey(
+                    activity.rowKey,
+                    "predecessor"
+                  );
+                  const successorDraftKey = buildRelationshipDraftKey(
+                    activity.rowKey,
+                    "successor"
+                  );
 
                   return (
                     <tr
                       key={activity.rowKey}
                       className="h-10"
+                      style={{ height: rowHeight }}
                       title={activityTitle || undefined}
+                      onKeyDown={(event) =>
+                        handleActivityRowKeyDown(event, activity.rowKey)
+                      }
                     >
                       <td
-                        className="sticky left-0 z-30 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 align-middle"
+                        className="sticky left-0 z-30 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-0.5 align-middle"
                         style={{ left: 0 }}
                       >
                         <Input
@@ -433,10 +634,23 @@ export function ProjectSchedulerWorkspace({
                         />
                       </td>
                       <td
-                        className="sticky z-30 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 align-middle shadow-[1px_0_0_0_var(--border)]"
+                        className="sticky z-30 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-0.5 align-middle shadow-[1px_0_0_0_var(--border)]"
                         style={{ left: activityIdColumnWidth }}
                       >
                         <Input
+                          ref={(input) => {
+                            if (input) {
+                              activityNameInputRefs.current.set(
+                                activity.rowKey,
+                                input
+                              );
+                              return;
+                            }
+
+                            activityNameInputRefs.current.delete(
+                              activity.rowKey
+                            );
+                          }}
                           value={activity.activityName}
                           onChange={(event) =>
                             updateActivity(activity.rowKey, (currentActivity) => ({
@@ -448,7 +662,131 @@ export function ProjectSchedulerWorkspace({
                           className={compactInputClassName}
                         />
                       </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={
+                            dateDraftValues[activity.rowKey] ??
+                            formatDisplayDate(activity.startDate)
+                          }
+                          onChange={(event) =>
+                            handleStartDateDraftChange(
+                              activity.rowKey,
+                              event.target.value
+                            )
+                          }
+                          onBlur={() => clearStartDateDraft(activity.rowKey)}
+                          placeholder="DD/MM/YYYY"
+                          className={compactInputClassName}
+                          title={
+                            activity.isLogicDriven
+                              ? `Logic start: ${formatDisplayDate(activity.computedStartDate)}`
+                              : undefined
+                          }
+                        />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={String(
+                            isMilestoneActivity(activity)
+                              ? 0
+                              : activity.durationDays
+                          )}
+                          disabled={isMilestoneActivity(activity)}
+                          onChange={(event) =>
+                            updateActivity(activity.rowKey, (currentActivity) => ({
+                              ...currentActivity,
+                              ...(isZeroDurationInput(event.target.value)
+                                ? {
+                                    activityType: "Start Milestone",
+                                    durationDays: 0,
+                                  }
+                                : {
+                                    durationDays: clampDuration(
+                                      event.target.value,
+                                      currentActivity.activityType
+                                    ),
+                                  }),
+                            }))
+                          }
+                          className={compactInputClassName}
+                        />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <div
+                          className={[
+                            "flex h-8 items-center rounded-lg border px-2 text-[11px] font-medium",
+                            warningText
+                              ? "border-amber-400/70 bg-amber-500/10 text-[var(--foreground)]"
+                              : "border-[var(--border)] bg-[var(--panel-soft)]",
+                          ].join(" ")}
+                          title={activityTitle || undefined}
+                        >
+                          {formatDisplayDate(activity.computedEndDate)}
+                        </div>
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <Input
+                          value={
+                            relationshipDraftValues[predecessorDraftKey] ??
+                            formatRelationshipValue(activity.predecessorIds)
+                          }
+                          onChange={(event) => {
+                            handleRelationshipDraftChange(
+                              activity.rowKey,
+                              "predecessor",
+                              event.target.value
+                            );
+                            updateActivity(activity.rowKey, (currentActivity) => ({
+                              ...currentActivity,
+                              predecessorIds: parseRelationshipIds(event.target.value).filter(
+                                (predecessorId) =>
+                                  predecessorId !==
+                                  normalizeRelationshipId(currentActivity.activityId)
+                              ),
+                            }));
+                          }}
+                          onBlur={() =>
+                            clearRelationshipDraft(activity.rowKey, "predecessor")
+                          }
+                          placeholder="A100, A120"
+                          className={
+                            warningText
+                              ? `${compactInputClassName} border-amber-400/80`
+                              : compactInputClassName
+                          }
+                          title={activityTitle || undefined}
+                        />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <Input
+                          value={
+                            relationshipDraftValues[successorDraftKey] ??
+                            formatRelationshipValue(activity.successorIds)
+                          }
+                          onChange={(event) => {
+                            handleRelationshipDraftChange(
+                              activity.rowKey,
+                              "successor",
+                              event.target.value
+                            );
+                            handleSuccessorChange(
+                              activity.rowKey,
+                              event.target.value
+                            );
+                          }}
+                          onBlur={() =>
+                            clearRelationshipDraft(activity.rowKey, "successor")
+                          }
+                          placeholder="A300, A400"
+                          className={compactInputClassName}
+                        />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <select
                           value={activity.activityType}
                           onChange={(event) =>
@@ -466,92 +804,7 @@ export function ProjectSchedulerWorkspace({
                           ))}
                         </select>
                       </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
-                        <Input
-                          type="date"
-                          value={activity.startDate}
-                          onChange={(event) =>
-                            updateActivity(activity.rowKey, (currentActivity) => ({
-                              ...currentActivity,
-                              startDate: event.target.value,
-                            }))
-                          }
-                          className={compactInputClassName}
-                          title={
-                            activity.isLogicDriven
-                              ? `Logic start: ${formatDisplayDate(activity.computedStartDate)}`
-                              : undefined
-                          }
-                        />
-                      </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
-                        <Input
-                          type="number"
-                          min={isMilestoneActivity(activity) ? 0 : 1}
-                          value={String(
-                            isMilestoneActivity(activity)
-                              ? 0
-                              : activity.durationDays
-                          )}
-                          disabled={isMilestoneActivity(activity)}
-                          onChange={(event) =>
-                            updateActivity(activity.rowKey, (currentActivity) => ({
-                              ...currentActivity,
-                              durationDays: clampDuration(
-                                event.target.value,
-                                currentActivity.activityType
-                              ),
-                            }))
-                          }
-                          className={compactInputClassName}
-                        />
-                      </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
-                        <div
-                          className={[
-                            "flex h-8 items-center rounded-lg border px-2 text-[11px] font-medium",
-                            warningText
-                              ? "border-amber-400/70 bg-amber-500/10 text-[var(--foreground)]"
-                              : "border-[var(--border)] bg-[var(--panel-soft)]",
-                          ].join(" ")}
-                          title={activityTitle || undefined}
-                        >
-                          {formatDisplayDate(activity.computedEndDate)}
-                        </div>
-                      </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
-                        <Input
-                          value={formatRelationshipValue(activity.predecessorIds)}
-                          onChange={(event) =>
-                            updateActivity(activity.rowKey, (currentActivity) => ({
-                              ...currentActivity,
-                              predecessorIds: parseRelationshipIds(event.target.value).filter(
-                                (predecessorId) =>
-                                  predecessorId !==
-                                  normalizeRelationshipId(currentActivity.activityId)
-                              ),
-                            }))
-                          }
-                          placeholder="A100, A120"
-                          className={
-                            warningText
-                              ? `${compactInputClassName} border-amber-400/80`
-                              : compactInputClassName
-                          }
-                          title={activityTitle || undefined}
-                        />
-                      </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
-                        <Input
-                          value={formatRelationshipValue(activity.successorIds)}
-                          onChange={(event) =>
-                            handleSuccessorChange(activity.rowKey, event.target.value)
-                          }
-                          placeholder="A300, A400"
-                          className={compactInputClassName}
-                        />
-                      </td>
-                      <td className="border-b border-[var(--border)] px-2 py-1 align-middle">
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <button
                           type="button"
                           onClick={() => handleDeleteActivity(activity.rowKey)}
@@ -579,7 +832,7 @@ export function ProjectSchedulerWorkspace({
             <div
               className="relative"
               style={{
-                width: Math.max(ganttColumns.length * ganttCellWidth, 720),
+                width: ganttContentWidth,
               }}
             >
               <div className="sticky top-0 z-30 border-b border-[var(--border)] bg-[var(--panel)]">
@@ -608,42 +861,56 @@ export function ProjectSchedulerWorkspace({
                 <div className="relative">
                   <svg
                     className="pointer-events-none absolute inset-0 z-20"
-                    width={Math.max(ganttColumns.length * ganttCellWidth, 720)}
+                    width={ganttContentWidth}
                     height={computedSchedule.activities.length * rowHeight}
-                    viewBox={`0 0 ${Math.max(
-                      ganttColumns.length * ganttCellWidth,
-                      720
-                    )} ${computedSchedule.activities.length * rowHeight}`}
+                    viewBox={`0 0 ${ganttContentWidth} ${
+                      computedSchedule.activities.length * rowHeight
+                    }`}
                     fill="none"
                     >
                       {ganttConnections.map((connection) => {
+                      const sourceBounds = ganttVisualBoundsById.get(
+                        connection.fromActivityId
+                      );
+                      const targetBounds = ganttVisualBoundsById.get(
+                        connection.toActivityId
+                      );
                       const startX =
-                        connection.fromOffset * ganttCellWidth - ganttBarInset;
-                      const arrowTipX =
-                        connection.toOffset * ganttCellWidth + ganttBarInset;
+                        sourceBounds?.endX ??
+                        (connection.fromIsMilestone
+                          ? connection.fromOffset * ganttCellWidth +
+                            ganttBarInset +
+                            ganttMilestoneSize
+                          : connection.fromOffset * ganttCellWidth -
+                            ganttBarInset);
+                      const rawArrowTipX =
+                        (targetBounds?.startX ??
+                          connection.toOffset * ganttCellWidth +
+                            ganttBarInset) - ganttArrowTargetGap;
+                      const arrowTipX = rawArrowTipX;
                       const arrowBaseX = arrowTipX - ganttArrowWidth;
                       const startY =
                         connection.fromRowIndex * rowHeight + rowHeight / 2;
                       const endY = connection.toRowIndex * rowHeight + rowHeight / 2;
-                      const availableRun = arrowBaseX - startX;
-                      const elbowOffset =
-                        availableRun > 18
-                          ? 16
-                          : Math.max(Math.min(availableRun - 8, 16), 6);
-                      const elbowX = startX + elbowOffset;
-                      const path = `M ${startX} ${startY} H ${elbowX} V ${endY} H ${arrowBaseX}`;
+                      const path = buildGanttConnectionPath({
+                        startX,
+                        startY,
+                        arrowBaseX,
+                        endY,
+                      });
                       const arrowHead = `M ${arrowBaseX} ${endY - 5} L ${arrowTipX} ${endY} L ${arrowBaseX} ${endY + 5} Z`;
+                      const connectionColor = "#94a3b8";
 
                       return (
                         <g key={connection.id}>
                           <path
                             d={path}
-                            stroke="#94a3b8"
+                            stroke={connectionColor}
                             strokeWidth="1.6"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
-                          <path d={arrowHead} fill="#94a3b8" stroke="none" />
+                          <path d={arrowHead} fill={connectionColor} stroke="none" />
                         </g>
                       );
                     })}
@@ -667,6 +934,20 @@ export function ProjectSchedulerWorkspace({
                   );
                   const isMilestone = isMilestoneActivity(activity);
                   const activityLabel = activity.activityName || "Untitled";
+                  const activityId = normalizeRelationshipId(activity.activityId);
+                  const visualBounds = activityId
+                    ? ganttVisualBoundsById.get(activityId)
+                    : null;
+                  const visualStartX =
+                    visualBounds?.startX ??
+                    Math.max(
+                      startOffset * ganttCellWidth + ganttBarInset,
+                      ganttBarInset
+                    );
+                  const visualBarWidth =
+                    visualBounds && !visualBounds.isMilestone
+                      ? Math.max(visualBounds.endX - visualBounds.startX, 36)
+                      : barWidth;
 
                   return (
                     <div
@@ -697,49 +978,41 @@ export function ProjectSchedulerWorkspace({
                           <div
                             className="flex h-8 items-center gap-2"
                             style={{
-                              marginLeft: Math.max(
-                                startOffset * ganttCellWidth + ganttBarInset,
-                                ganttBarInset
-                              ),
+                              marginLeft: visualStartX,
                             }}
                             title={`${activity.activityType} - ${activityLabel} - ${formatDisplayDate(activity.computedStartDate)}`}
                           >
                             <span className="h-3.5 w-3.5 rotate-45 bg-black shadow ring-1 ring-white/70" />
-                            <span className="max-w-[220px] truncate rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] font-semibold text-[var(--foreground)] shadow-sm">
+                            <span className="whitespace-nowrap rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] font-semibold text-[var(--foreground)] shadow-sm">
                               {activityLabel}
                             </span>
                           </div>
                         ) : (
                           <div
-                            className={[
-                              "ml-1 flex h-7 items-center rounded-lg px-2 text-[10px] font-semibold text-white shadow",
-                              activity.hasCircularDependency
-                                ? "bg-amber-500"
-                                : activity.unresolvedPredecessors.length > 0
-                                  ? "bg-slate-500"
-                                  : activity.isCritical
-                                    ? "bg-red-600"
-                                    : "bg-emerald-600",
-                              ].join(" ")}
-                              style={{
-                                marginLeft: Math.max(
-                                  startOffset * ganttCellWidth + ganttBarInset,
-                                  ganttBarInset
-                                ),
-                                width: barWidth,
-                              }}
+                            className="ml-1 flex h-7 items-center gap-2"
+                            style={{
+                              marginLeft: visualStartX,
+                            }}
                             title={`${activityLabel} - ${formatDisplayDate(activity.computedStartDate)} to ${formatDisplayDate(activity.computedEndDate)}`}
                           >
-                            <span className="truncate">{activityLabel}</span>
+                            <span
+                              className={[
+                                "h-5 rounded-lg shadow",
+                                activity.hasCircularDependency
+                                  ? "bg-amber-500"
+                                  : activity.unresolvedPredecessors.length > 0
+                                    ? "bg-slate-500"
+                                    : "bg-emerald-600",
+                              ].join(" ")}
+                              style={{ width: visualBarWidth }}
+                            />
+                            <span className="whitespace-nowrap rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] font-semibold text-[var(--foreground)] shadow-sm ring-1 ring-[var(--border)]">
+                              {activityLabel}
+                            </span>
                           </div>
                         )}
                       </div>
 
-                      {!isMilestone ? (
-                        <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] text-[var(--muted)] shadow-sm">
-                          {formatDisplayDate(activity.computedEndDate)}
-                        </div>
-                      ) : null}
                     </div>
                   );
                 })}
@@ -935,14 +1208,16 @@ function buildStarterActivities(expectedStartDate: string | null): SchedulerActi
     },
   ].map((activity) => ({
     ...activity,
-    activityType: "Task Dependency",
+    activityType: "Task Dependent",
   }));
 }
 
 function computeSchedule(
   activities: SchedulerActivity[],
-  expectedStartDate: string | null
+  expectedStartDate: string | null,
+  options: ScheduleComputationOptions = {}
 ): ScheduleComputation {
+  const respectManualStartDates = options.respectManualStartDates ?? true;
   const normalizedStartDate = expectedStartDate || getTodayInputDate();
   const activityIds = activities
     .map((activity) => normalizeRelationshipId(activity.activityId))
@@ -1020,6 +1295,7 @@ function computeSchedule(
     visiting.add(activityId);
 
     let computedStart = startDate;
+    const relationshipStartCandidates: Date[] = [];
     const unresolvedPredecessors: string[] = [];
     let hasCircularDependency = false;
     let isLogicDriven = false;
@@ -1045,9 +1321,17 @@ function computeSchedule(
       }
 
       const relationshipStart = addDays(predecessorEndDate, 1);
+      relationshipStartCandidates.push(relationshipStart);
+    }
 
-      if (relationshipStart.getTime() > computedStart.getTime()) {
-        computedStart = relationshipStart;
+    if (relationshipStartCandidates.length > 0) {
+      const relationshipDrivenStart = maxDate(relationshipStartCandidates);
+
+      if (
+        !respectManualStartDates ||
+        relationshipDrivenStart.getTime() > computedStart.getTime()
+      ) {
+        computedStart = relationshipDrivenStart;
         isLogicDriven = true;
       }
     }
@@ -1255,6 +1539,8 @@ function buildGanttConnections(
   const rowIndexById = new Map<string, number>();
   const startOffsetById = new Map<string, number>();
   const endOffsetById = new Map<string, number>();
+  const criticalById = new Map<string, boolean>();
+  const milestoneById = new Map<string, boolean>();
 
   activities.forEach((activity, rowIndex) => {
     const activityId = normalizeRelationshipId(activity.activityId);
@@ -1263,19 +1549,24 @@ function buildGanttConnections(
       return;
     }
 
+    const startOffset = findColumnBoundaryOffsetForDate(
+      columns,
+      activity.computedStartDate,
+      "start"
+    );
+    const endOffset = isMilestoneActivity(activity)
+      ? startOffset
+      : findColumnBoundaryOffsetForDate(
+          columns,
+          activity.computedEndDate,
+          "end"
+        );
+
     rowIndexById.set(activityId, rowIndex);
-    startOffsetById.set(
-      activityId,
-      findColumnBoundaryOffsetForDate(
-        columns,
-        activity.computedStartDate,
-        "start"
-      )
-    );
-    endOffsetById.set(
-      activityId,
-      findColumnBoundaryOffsetForDate(columns, activity.computedEndDate, "end")
-    );
+    criticalById.set(activityId, activity.isCritical);
+    milestoneById.set(activityId, isMilestoneActivity(activity));
+    startOffsetById.set(activityId, startOffset);
+    endOffsetById.set(activityId, endOffset);
   });
 
   return activities.flatMap((activity) => {
@@ -1295,6 +1586,9 @@ function buildGanttConnections(
     return activity.predecessorIds.flatMap((predecessorId) => {
       const fromRowIndex = rowIndexById.get(predecessorId);
       const fromOffset = endOffsetById.get(predecessorId);
+      const isCritical =
+        Boolean(criticalById.get(predecessorId)) &&
+        Boolean(criticalById.get(targetActivityId));
 
       if (fromRowIndex === undefined || fromOffset === undefined) {
         return [];
@@ -1303,14 +1597,99 @@ function buildGanttConnections(
       return [
         {
           id: `${predecessorId}-${targetActivityId}`,
+          fromActivityId: predecessorId,
+          toActivityId: targetActivityId,
           fromRowIndex,
           toRowIndex,
           fromOffset,
           toOffset,
+          fromIsMilestone: Boolean(milestoneById.get(predecessorId)),
+          isCritical,
         },
       ];
     });
   });
+}
+
+function buildGanttVisualBounds(
+  activities: ScheduledActivity[],
+  columns: GanttColumn[],
+  ganttCellWidth: number
+) {
+  const visualBoundsById = new Map<string, GanttVisualBounds>();
+
+  activities.forEach((activity) => {
+    const activityId = normalizeRelationshipId(activity.activityId);
+
+    if (!activityId) {
+      return;
+    }
+
+    const startOffset = findColumnBoundaryOffsetForDate(
+      columns,
+      activity.computedStartDate,
+      "start"
+    );
+    const endOffset = findColumnBoundaryOffsetForDate(
+      columns,
+      activity.computedEndDate,
+      "end"
+    );
+    const isMilestone = isMilestoneActivity(activity);
+    const startX = Math.max(
+      startOffset * ganttCellWidth + ganttBarInset,
+      ganttBarInset
+    );
+    const width = isMilestone
+      ? ganttMilestoneSize
+      : Math.max(
+          Math.max(endOffset - startOffset, 1 / 7) * ganttCellWidth -
+            ganttBarInset * 2,
+          36
+        );
+
+    visualBoundsById.set(activityId, {
+      startX,
+      endX: startX + width,
+      isMilestone,
+    });
+  });
+
+  return visualBoundsById;
+}
+
+function buildGanttConnectionPath({
+  startX,
+  startY,
+  arrowBaseX,
+  endY,
+}: {
+  startX: number;
+  startY: number;
+  arrowBaseX: number;
+  endY: number;
+}) {
+  const availableRun = arrowBaseX - startX;
+
+  if (availableRun >= ganttMinimumConnectorRun) {
+    const elbowX = startX + 16;
+    return `M ${startX} ${startY} H ${elbowX} V ${endY} H ${arrowBaseX}`;
+  }
+
+  const detourX = startX + 16;
+  const approachX = Math.max(
+    ganttBarInset,
+    Math.min(
+      arrowBaseX - ganttTightConnectorLoopWidth,
+      startX - ganttTightConnectorLoopWidth
+    )
+  );
+  const approachY =
+    endY > startY
+      ? endY - ganttTightConnectorLaneOffset
+      : endY + ganttTightConnectorLaneOffset;
+
+  return `M ${startX} ${startY} H ${detourX} V ${approachY} H ${approachX} V ${endY} H ${arrowBaseX}`;
 }
 
 function buildGanttColumns(
@@ -1464,12 +1843,6 @@ function buildActivityTitle(activity: ScheduledActivity) {
     parts.push(`Logic start: ${formatDisplayDate(activity.computedStartDate)}`);
   }
 
-  if (activity.isCritical) {
-    parts.push("Critical path: 0 days total float");
-  } else if (activity.totalFloatDays > 0) {
-    parts.push(`Total float: ${activity.totalFloatDays} days`);
-  }
-
   return parts.filter(Boolean).join(" ");
 }
 
@@ -1483,6 +1856,21 @@ function buildNextActivityId(activities: SchedulerActivity[]) {
   const nextValue = (Math.max(0, ...numericValues) || 0) + 10;
 
   return `A${String(nextValue).padStart(3, "0")}`;
+}
+
+function buildBlankActivity(
+  activities: SchedulerActivity[],
+  startDate: string
+): SchedulerActivity {
+  return {
+    rowKey: createRowKey(),
+    activityId: buildNextActivityId(activities),
+    activityName: "",
+    activityType: "Task Dependent",
+    startDate,
+    durationDays: 5,
+    predecessorIds: [],
+  };
 }
 
 function isMilestoneActivityType(activityType: ActivityType) {
@@ -1499,7 +1887,7 @@ function getActivityDurationDays(activity: SchedulerActivity) {
 
 function clampDuration(
   value: string | number,
-  activityType: ActivityType = "Task Dependency"
+  activityType: ActivityType = "Task Dependent"
 ) {
   const numericValue = Number(value);
   const minimumDuration = isMilestoneActivityType(activityType) ? 0 : 1;
@@ -1509,6 +1897,12 @@ function clampDuration(
   }
 
   return Math.round(numericValue);
+}
+
+function isZeroDurationInput(value: string) {
+  const trimmedValue = value.trim();
+
+  return trimmedValue !== "" && Number(trimmedValue) === 0;
 }
 
 function normalizeRelationshipId(value: string) {
@@ -1532,6 +1926,10 @@ function formatRelationshipValue(values: string[]) {
   return values.join(", ");
 }
 
+function buildRelationshipDraftKey(rowKey: string, field: RelationshipField) {
+  return `${rowKey}:${field}`;
+}
+
 function parseDateValue(value: string) {
   if (!value) {
     return null;
@@ -1539,6 +1937,69 @@ function parseDateValue(value: string) {
 
   const date = new Date(`${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseDisplayDateInputToInputDate(value: string) {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedValue);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return buildInputDateFromParts(day, month, year);
+  }
+
+  const compactMatch = /^(\d{2})(\d{2})(\d{4})$/.exec(trimmedValue);
+
+  if (compactMatch) {
+    const [, day, month, year] = compactMatch;
+    return buildInputDateFromParts(day, month, year);
+  }
+
+  const displayMatch = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(
+    trimmedValue
+  );
+
+  if (!displayMatch) {
+    return null;
+  }
+
+  const [, day, month, year] = displayMatch;
+  return buildInputDateFromParts(day, month, year);
+}
+
+function buildInputDateFromParts(
+  dayValue: string,
+  monthValue: string,
+  yearValue: string
+) {
+  const day = Number(dayValue);
+  const month = Number(monthValue);
+  const year = Number(yearValue);
+
+  if (
+    !Number.isInteger(day) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(year)
+  ) {
+    return null;
+  }
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return toInputDate(date);
 }
 
 function addDays(date: Date, days: number) {
@@ -1556,6 +2017,12 @@ function daysBetween(startDate: Date, endDate: Date) {
 function minDate(dates: Date[]) {
   return dates.reduce((earliestDate, date) =>
     date.getTime() < earliestDate.getTime() ? date : earliestDate
+  );
+}
+
+function maxDate(dates: Date[]) {
+  return dates.reduce((latestDate, date) =>
+    date.getTime() > latestDate.getTime() ? date : latestDate
   );
 }
 
