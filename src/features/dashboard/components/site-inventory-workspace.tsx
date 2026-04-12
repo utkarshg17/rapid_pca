@@ -25,23 +25,32 @@ import {
   saveSiteInventoryItem,
   saveSiteInventorySource,
   updateSiteInventoryTransaction,
+  updateSiteInventoryTransactionMovementStatus,
 } from "@/features/dashboard/services/site-inventory";
 import type {
   SiteInventoryBalance,
   SiteInventoryItem,
+  SiteInventoryMovementStatus,
   SiteInventorySource,
   SiteInventorySourceType,
   SiteInventoryTransaction,
   SiteInventoryUnit,
 } from "@/features/dashboard/types/site-inventory";
+import { formatDisplayDate, formatDisplayDateTime } from "@/lib/date-format";
 
-const inventoryUnits: SiteInventoryUnit[] = ["Bags", "bundle", "cu.m", "sq.ft", "count", "litre", "kg", "ton"];
+const inventoryUnits: SiteInventoryUnit[] = ["Bags", "bundle", "cu.m", "cu.ft", "sq.ft", "count", "litre", "kg", "ton"];
 const inventoryItemCategories = [
   "Fixed Asset",
   "Consumable Asset",
   "Fixed-Consumable Asset",
 ] as const;
 const sourceTypes: SiteInventorySourceType[] = ["Site", "Supplier", "Other"];
+const movementStatuses: SiteInventoryMovementStatus[] = [
+  "In Transit",
+  "Received",
+  "Disputed",
+  "Cancelled",
+];
 
 type SiteInventoryWorkspaceProps = {
   profile: UserProfile | null;
@@ -95,7 +104,12 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
   const [editingTransactionId, setEditingTransactionId] = useState<number | null>(
     null
   );
+  const [editingMovementStatus, setEditingMovementStatus] =
+    useState<SiteInventoryMovementStatus>("Received");
   const [isDeletingTransactionId, setIsDeletingTransactionId] = useState<
+    number | null
+  >(null);
+  const [isUpdatingMovementStatusId, setIsUpdatingMovementStatusId] = useState<
     number | null
   >(null);
   const [transactionDate, setTransactionDate] = useState(getTodayInputValue());
@@ -219,6 +233,7 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
 
   function resetLogComposer() {
     setEditingTransactionId(null);
+    setEditingMovementStatus("Received");
     setTransactionDate(getTodayInputValue());
     setLineDrafts(createDefaultLines());
   }
@@ -239,6 +254,7 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
     setErrorMessage("");
     setStatusMessage("");
     setEditingTransactionId(transaction.id);
+    setEditingMovementStatus(transaction.movementStatus);
     setTransactionDate(transaction.transactionDate || getTodayInputValue());
     setLineDrafts(
       transaction.lines.length > 0
@@ -287,6 +303,43 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
       );
     } finally {
       setIsDeletingTransactionId(null);
+    }
+  }
+
+  async function handleMovementStatusChange(
+    transaction: SiteInventoryTransaction,
+    movementStatus: SiteInventoryMovementStatus
+  ) {
+    if (transaction.movementStatus === movementStatus) {
+      return;
+    }
+
+    setErrorMessage("");
+    setStatusMessage(`Updating movement status to ${movementStatus}...`);
+    setIsUpdatingMovementStatusId(transaction.id);
+
+    try {
+      await updateSiteInventoryTransactionMovementStatus({
+        transactionId: transaction.id,
+        movementStatus,
+        updatedById: getInventoryCreatedById(profile),
+        updatedByName: createdByName,
+      });
+
+      setStatusMessage(
+        `Movement marked ${movementStatus} at ${new Date().toLocaleTimeString()}`
+      );
+      await refreshInventory();
+    } catch (error) {
+      console.error("Failed to update inventory movement status:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to update inventory movement status."
+      );
+      setStatusMessage("");
+    } finally {
+      setIsUpdatingMovementStatusId(null);
     }
   }
   async function handlePostTransaction(event: React.FormEvent<HTMLFormElement>) {
@@ -370,6 +423,9 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
           challanBillNo: headerLine.challanBillNo,
           vehicleNumber: headerLine.vehicleNumber,
           remarks: headerLine.remarks,
+          movementStatus: editingMovementStatus,
+          movementStatusUpdatedById: getInventoryCreatedById(profile),
+          movementStatusUpdatedByName: createdByName,
           lines: validLines.map((line) => ({
             itemId: line.itemId,
             quantity: line.quantity,
@@ -391,6 +447,11 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
             remarks: line.remarks,
             createdById: getInventoryCreatedById(profile),
             createdByName,
+            movementStatus: getDefaultMovementStatusForSources(
+              line.fromSourceId,
+              line.toSourceId,
+              activeSources
+            ),
             lines: [
               {
                 itemId: line.itemId,
@@ -513,9 +574,13 @@ export function SiteInventoryWorkspace({ profile }: SiteInventoryWorkspaceProps)
             onAddLine={handleAddLine}
             onDeleteLine={handleDeleteLine}
             editingTransactionId={editingTransactionId}
+            editingMovementStatus={editingMovementStatus}
             isDeletingTransactionId={isDeletingTransactionId}
+            isUpdatingMovementStatusId={isUpdatingMovementStatusId}
             onEditTransaction={handleEditTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            onMovementStatusChange={handleMovementStatusChange}
+            onEditingMovementStatusChange={setEditingMovementStatus}
             onCloseLogDialog={handleCloseLogDialog}
             onSubmit={handlePostTransaction}
           />
@@ -567,7 +632,9 @@ type InventoryLogsPanelProps = {
   isPostingTransaction: boolean;
   statusMessage: string;
   editingTransactionId: number | null;
+  editingMovementStatus: SiteInventoryMovementStatus;
   isDeletingTransactionId: number | null;
+  isUpdatingMovementStatusId: number | null;
   onTransactionDateChange: (value: string) => void;
   onLineChange: (
     rowId: number,
@@ -578,6 +645,11 @@ type InventoryLogsPanelProps = {
   onDeleteLine: (rowId: number) => void;
   onEditTransaction: (transaction: SiteInventoryTransaction) => void;
   onDeleteTransaction: (transactionId: number) => Promise<void>;
+  onMovementStatusChange: (
+    transaction: SiteInventoryTransaction,
+    movementStatus: SiteInventoryMovementStatus
+  ) => Promise<void>;
+  onEditingMovementStatusChange: (value: SiteInventoryMovementStatus) => void;
   onCloseLogDialog: () => void;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
 };
@@ -592,13 +664,17 @@ function InventoryLogsPanel({
   isPostingTransaction,
   statusMessage,
   editingTransactionId,
+  editingMovementStatus,
   isDeletingTransactionId,
+  isUpdatingMovementStatusId,
   onTransactionDateChange,
   onLineChange,
   onAddLine,
   onDeleteLine,
   onEditTransaction,
   onDeleteTransaction,
+  onMovementStatusChange,
+  onEditingMovementStatusChange,
   onCloseLogDialog,
   onSubmit,
 }: InventoryLogsPanelProps) {
@@ -622,8 +698,8 @@ function InventoryLogsPanel({
                   {editingTransactionId ? "Edit Inventory Log" : "Add Inventory Log"}
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">
-                  Supplier-to-site entries add stock to the receiving site. Site-to-site
-                  transfers subtract from the origin site and add to the destination site.
+                  Supplier-to-site entries are received immediately. Site-to-site
+                  transfers start In Transit and affect stock only when marked Received.
                 </p>
               </div>
 
@@ -638,7 +714,7 @@ function InventoryLogsPanel({
             </div>
 
             <form onSubmit={onSubmit} className="space-y-6">
-              <div className="max-w-sm">
+              <div className="grid gap-4 md:grid-cols-[minmax(0,240px)_minmax(0,220px)]">
                 <Field label="Transaction Date" required>
                   <Input
                     type="date"
@@ -646,6 +722,25 @@ function InventoryLogsPanel({
                     onChange={(event) => onTransactionDateChange(event.target.value)}
                   />
                 </Field>
+                {editingTransactionId ? (
+                  <Field label="Status">
+                    <select
+                      value={editingMovementStatus}
+                      onChange={(event) =>
+                        onEditingMovementStatusChange(
+                          event.target.value as SiteInventoryMovementStatus
+                        )
+                      }
+                      className={selectClassName}
+                    >
+                      {movementStatuses.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                ) : null}
               </div>
 
               <div className="overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--panel-soft)]">
@@ -842,17 +937,17 @@ function InventoryLogsPanel({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1420px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1440px] border-collapse text-left text-sm">
               <thead className="bg-[var(--surface)]">
                 <tr>
-                  <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Date</th>
+                  <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Transaction Date</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">From</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">To</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Items</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Item Category</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Challan / Bill</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Vehicle</th>
-                  <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Remarks</th>
+                  <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Status</th>
                   <th className="px-3 py-3 text-xs uppercase tracking-[0.18em] text-[var(--subtle)]">Action</th>
                 </tr>
               </thead>
@@ -892,8 +987,18 @@ function InventoryLogsPanel({
                     <td className="px-3 py-3 text-[var(--muted)]">
                       {transaction.vehicleNumber || "--"}
                     </td>
-                    <td className="px-3 py-3 text-[var(--muted)]">
-                      {transaction.remarks || "--"}
+                    <td className="px-3 py-3">
+                      <MovementStatusSelect
+                        value={transaction.movementStatus}
+                        disabled={
+                          isPostingTransaction ||
+                          isDeletingTransactionId === transaction.id ||
+                          isUpdatingMovementStatusId === transaction.id
+                        }
+                        onChange={(movementStatus) =>
+                          void onMovementStatusChange(transaction, movementStatus)
+                        }
+                      />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap gap-2">
@@ -1165,6 +1270,7 @@ function getBalanceMovementHistory(
   let runningTotal = 0;
 
   return transactions
+    .filter(isReceivedInventoryMovement)
     .flatMap((transaction) =>
       transaction.lines.flatMap((line) => {
         if (line.itemId !== row.itemId || line.unit !== row.unit) {
@@ -1570,6 +1676,34 @@ function DialogShell({ title, children, onClose, maxWidth = "max-w-5xl" }: { tit
   );
 }
 
+
+function MovementStatusSelect({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: SiteInventoryMovementStatus;
+  disabled: boolean;
+  onChange: (value: SiteInventoryMovementStatus) => void;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value as SiteInventoryMovementStatus)}
+      className={[
+        "h-9 rounded-full border px-3 text-xs font-semibold outline-none transition duration-200 disabled:cursor-not-allowed disabled:opacity-60",
+        getMovementStatusClassName(value),
+      ].join(" ")}
+    >
+      {movementStatuses.map((status) => (
+        <option key={status} value={status}>
+          {status}
+        </option>
+      ))}
+    </select>
+  );
+}
 function TabButton({ label, isActive, onClick }: { label: string; isActive: boolean; onClick: () => void }) {
   return <button type="button" onClick={onClick} className={["rounded-2xl border px-4 py-2.5 text-sm font-medium transition duration-200", "hover:scale-105 hover:cursor-pointer", isActive ? "border-[var(--inverse-bg)] bg-[var(--inverse-bg)] text-[var(--inverse-fg)]" : "border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] hover:border-[var(--border-strong)]"].join(" ")}>{label}</button>;
 }
@@ -1625,6 +1759,37 @@ function getTodayInputValue() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function getDefaultMovementStatusForSources(
+  fromSourceId: number,
+  toSourceId: number,
+  sources: SiteInventorySource[]
+): SiteInventoryMovementStatus {
+  const fromSource = sources.find((source) => source.id === fromSourceId);
+  const toSource = sources.find((source) => source.id === toSourceId);
+
+  return fromSource?.sourceType === "Site" && toSource?.sourceType === "Site"
+    ? "In Transit"
+    : "Received";
+}
+
+function isReceivedInventoryMovement(transaction: SiteInventoryTransaction) {
+  return transaction.status === "posted" && transaction.movementStatus === "Received";
+}
+
+function getMovementStatusClassName(status: SiteInventoryMovementStatus) {
+  switch (status) {
+    case "Received":
+      return "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300";
+    case "In Transit":
+      return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    case "Disputed":
+      return "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300";
+    case "Cancelled":
+      return "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300";
+    default:
+      return "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]";
+  }
+}
 function isTransactionLineTouched(line: TransactionLineDraft) {
   return Boolean(
     line.fromSourceId ||
@@ -1647,13 +1812,11 @@ function formatQuantity(value: number) {
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  return formatDisplayDate(value, value);
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatDisplayDateTime(value, value);
 }
 
 function normalizeInventorySearchValue(value: string) {

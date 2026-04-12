@@ -1,9 +1,16 @@
 export type SiteInventorySourceType = "Site" | "Supplier" | "Other";
 
+export type SiteInventoryMovementStatus =
+  | "In Transit"
+  | "Received"
+  | "Disputed"
+  | "Cancelled";
+
 export type SiteInventoryUnit =
   | "Bags"
   | "bundle"
   | "cu.m"
+  | "cu.ft"
   | "sq.ft"
   | "count"
   | "litre"
@@ -66,6 +73,10 @@ export type SiteInventoryTransactionRecord = {
   created_by_id: string | null;
   created_by_name: string | null;
   status: string | null;
+  movement_status: string | null;
+  movement_status_updated_at: string | null;
+  movement_status_updated_by_id: string | null;
+  movement_status_updated_by_name: string | null;
 };
 
 export type SiteInventoryTransactionLineRecord = {
@@ -108,6 +119,10 @@ export type SiteInventoryTransaction = {
   createdById: string | null;
   createdByName: string;
   status: string;
+  movementStatus: SiteInventoryMovementStatus;
+  movementStatusUpdatedAt: string;
+  movementStatusUpdatedById: string | null;
+  movementStatusUpdatedByName: string;
   lines: SiteInventoryTransactionLine[];
 };
 
@@ -163,6 +178,7 @@ export type CreateSiteInventoryTransactionInput = {
   remarks: string;
   createdById: string | null;
   createdByName: string;
+  movementStatus?: SiteInventoryMovementStatus;
   lines: Array<{
     itemId: number;
     quantity: number;
@@ -178,6 +194,9 @@ export type UpdateSiteInventoryTransactionInput = {
   challanBillNo: string;
   vehicleNumber: string;
   remarks: string;
+  movementStatus: SiteInventoryMovementStatus;
+  movementStatusUpdatedById: string | null;
+  movementStatusUpdatedByName: string;
   lines: Array<{
     itemId: number;
     quantity: number;

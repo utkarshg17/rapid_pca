@@ -19,6 +19,11 @@ import type {
   MusterRollEntry,
   PettyContractorRecord,
 } from "@/features/projects/types/muster-roll";
+import {
+  formatDisplayDate,
+  formatDisplayDateTime,
+  formatDisplayMonthYear,
+} from "@/lib/date-format";
 
 type MusterRollPanelProps = {
   project: ProjectRecord;
@@ -3626,36 +3631,15 @@ function ExpandedMusterRollEntryDialog({
 }
 
 function formatCreatedAt(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleString();
+  return formatDisplayDateTime(dateValue, dateValue);
 }
 
 function formatDate(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString();
+  return formatDisplayDate(dateValue, dateValue);
 }
 
 function formatMonthYear(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
+  return formatDisplayMonthYear(dateValue, dateValue);
 }
 
 function toInputDate(dateValue: string) {

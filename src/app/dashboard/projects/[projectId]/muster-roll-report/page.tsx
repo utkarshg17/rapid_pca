@@ -14,9 +14,9 @@ import type { ProjectRecord } from "@/features/projects/types/project";
 import {
   buildMonthlyMusterRollReport,
   formatDayHeader,
-  parseDateValue,
   toInputDate,
 } from "@/features/projects/utils/build-muster-roll-monthly-report";
+import { formatDisplayDate, formatDisplayMonthYear } from "@/lib/date-format";
 
 export default function MusterRollReportPage() {
   const params = useParams<{ projectId: string }>();
@@ -495,23 +495,7 @@ function getCurrentMonthValue() {
 }
 
 function formatMonthValue(value: string) {
-  const monthMatch = /^(\d{4})-(\d{2})$/.exec(value);
-
-  if (!monthMatch) {
-    return value;
-  }
-
-  const [, year, month] = monthMatch;
-  const parsedDate = new Date(Number(year), Number(month) - 1, 1);
-
-  if (Number.isNaN(parsedDate.getTime())) {
-    return value;
-  }
-
-  return parsedDate.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
+  return formatDisplayMonthYear(value, value);
 }
 
 function formatNumber(value: number) {
@@ -535,13 +519,7 @@ function formatAccountingCurrencyInr(value: number) {
 }
 
 function formatDate(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString();
+  return formatDisplayDate(dateValue, dateValue);
 }
 
 function SummaryValueCard({

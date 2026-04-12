@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 
 import { DashboardHeader } from "@/components/layout/dashboard-header";
 import { PageShell } from "@/components/layout/page-shell";
@@ -235,20 +235,36 @@ function ProjectWorkspaceSidebar({
               const isActive = activeTab === tab.key;
 
               return (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => onTabChange(tab.key)}
-                  className={[
-                    "w-full rounded-2xl border px-4 py-3 text-left text-sm font-medium transition duration-200 ease-out",
-                    "hover:scale-105 hover:cursor-pointer",
-                    isActive
-                      ? "border-[var(--inverse-bg)] bg-[var(--inverse-bg)] text-[var(--inverse-fg)]"
-                      : "border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] hover:border-[var(--border-strong)]",
-                  ].join(" ")}
-                >
-                  {tab.label}
-                </button>
+                <Fragment key={tab.key}>
+                  <button
+                    type="button"
+                    onClick={() => onTabChange(tab.key)}
+                    className={[
+                      "w-full rounded-2xl border px-4 py-3 text-left text-sm font-medium transition duration-200 ease-out",
+                      "hover:scale-105 hover:cursor-pointer",
+                      isActive
+                        ? "border-[var(--inverse-bg)] bg-[var(--inverse-bg)] text-[var(--inverse-fg)]"
+                        : "border-[var(--border)] bg-[var(--input-bg)] text-[var(--foreground)] hover:border-[var(--border-strong)]",
+                    ].join(" ")}
+                  >
+                    {tab.label}
+                  </button>
+
+                  {tab.key === "overview" ? (
+                    project?.id ? (
+                      <Link
+                        href={`/dashboard/projects/${project.id}/scheduler`}
+                        className="block w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--foreground)] transition duration-200 ease-out hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+                      >
+                        Scheduler
+                      </Link>
+                    ) : (
+                      <div className="w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-left text-sm font-medium text-[var(--muted)] opacity-70">
+                        Scheduler
+                      </div>
+                    )
+                  ) : null}
+                </Fragment>
               );
             })}
           </div>

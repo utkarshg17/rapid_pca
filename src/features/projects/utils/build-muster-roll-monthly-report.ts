@@ -1,4 +1,5 @@
 import type { MusterRollEntry } from "@/features/projects/types/muster-roll";
+import { formatDisplayDate } from "@/lib/date-format";
 
 export type MonthlyMusterRollReportRow = {
   pettyContractorId: number | null;
@@ -155,16 +156,7 @@ export function buildMonthDayKeys(monthValue: string) {
 }
 
 export function formatDayHeader(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString(undefined, {
-    day: "2-digit",
-    month: "2-digit",
-  });
+  return formatDisplayDate(dateValue, dateValue);
 }
 
 export function toInputDate(dateValue: string) {

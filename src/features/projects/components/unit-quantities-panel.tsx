@@ -16,6 +16,7 @@ import {
 import { updateUnitQuantityEntry } from "@/features/projects/services/update-unit-quantity-entry";
 import type { ProjectRecord } from "@/features/projects/types/project";
 import type { UnitQuantityEntry } from "@/features/projects/types/unit-quantity";
+import { formatDisplayDateTime } from "@/lib/date-format";
 
 type EntryFormState = {
   selectedElementKey: string;
@@ -1139,13 +1140,7 @@ const inputClassName =
   "w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition duration-200 placeholder:text-[var(--placeholder)] focus:border-[var(--border-strong)]";
 
 function formatCreatedAt(dateValue: string) {
-  const date = new Date(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleString();
+  return formatDisplayDateTime(dateValue, dateValue);
 }
 
 function formatQuantity(value: number) {

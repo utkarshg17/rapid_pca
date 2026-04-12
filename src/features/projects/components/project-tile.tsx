@@ -1,18 +1,14 @@
 import Link from "next/link";
 
 import type { ProjectRecord } from "@/features/projects/types/project";
+import { formatDisplayDate } from "@/lib/date-format";
 
 type ProjectTileProps = {
   project: ProjectRecord;
 };
 
 function formatDate(dateValue: string | null) {
-  if (!dateValue) return "N/A";
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "N/A";
-
-  return date.toLocaleDateString();
+  return formatDisplayDate(dateValue, "N/A");
 }
 
 function formatLocation(project: ProjectRecord) {

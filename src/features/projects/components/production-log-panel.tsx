@@ -19,6 +19,7 @@ import type {
   ProductionLogEntry,
   SubContractorRecord,
 } from "@/features/projects/types/production-log";
+import { formatDisplayDate, formatDisplayDateTime } from "@/lib/date-format";
 
 type ProductionLogPanelProps = {
   project: ProjectRecord;
@@ -2001,23 +2002,11 @@ function parseDateValue(dateValue: string) {
 }
 
 function formatDate(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleDateString();
+  return formatDisplayDate(dateValue, dateValue);
 }
 
 function formatCreatedAt(dateValue: string) {
-  const date = parseDateValue(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleString();
+  return formatDisplayDateTime(dateValue, dateValue);
 }
 
 function formatNumber(value: number) {

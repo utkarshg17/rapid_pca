@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { formatDisplayMonthYear } from "@/lib/date-format";
 
 export type MaterialCostPoint = {
   monthKey: string;
@@ -19,11 +20,7 @@ function buildMonthKey(date: Date) {
 }
 
 function buildMonthLabel(date: Date) {
-  return new Intl.DateTimeFormat("en-IN", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(date);
+  return formatDisplayMonthYear(buildMonthKey(date), buildMonthKey(date));
 }
 
 function addMonth(date: Date) {

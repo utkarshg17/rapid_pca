@@ -7,6 +7,7 @@ import type {
   SiteInventoryBalanceRecord,
   SiteInventoryItem,
   SiteInventoryItemRecord,
+  SiteInventoryMovementStatus,
   SiteInventorySource,
   SiteInventorySourceRecord,
   SiteInventorySourceType,
@@ -22,10 +23,17 @@ const validSourceTypes = new Set<SiteInventorySourceType>([
   "Supplier",
   "Other",
 ]);
+const validMovementStatuses = new Set<SiteInventoryMovementStatus>([
+  "In Transit",
+  "Received",
+  "Disputed",
+  "Cancelled",
+]);
 const validUnits = new Set<SiteInventoryUnit>([
   "Bags",
   "bundle",
   "cu.m",
+  "cu.ft",
   "sq.ft",
   "count",
   "litre",
@@ -205,6 +213,10 @@ export async function getSiteInventoryTransactions(): Promise<
       createdById: transaction.created_by_id,
       createdByName: transaction.created_by_name ?? "",
       status: transaction.status ?? "posted",
+      movementStatus: normalizeMovementStatus(transaction.movement_status),
+      movementStatusUpdatedAt: transaction.movement_status_updated_at ?? transaction.created_at,
+      movementStatusUpdatedById: transaction.movement_status_updated_by_id,
+      movementStatusUpdatedByName: transaction.movement_status_updated_by_name ?? "",
       lines: (linesByTransactionId.get(transaction.id) ?? []).map((line) => ({
         id: line.id,
         createdAt: line.created_at,
@@ -243,6 +255,10 @@ export async function createSiteInventoryTransaction(
       created_by_id: toNullableUuid(input.createdById),
       created_by_name: input.createdByName.trim() || null,
       status: "posted",
+      movement_status: normalizeMovementStatus(input.movementStatus ?? "Received"),
+      movement_status_updated_at: new Date().toISOString(),
+      movement_status_updated_by_id: toNullableUuid(input.createdById),
+      movement_status_updated_by_name: input.createdByName.trim() || null,
     })
     .select("id")
     .single();
@@ -293,6 +309,9 @@ export async function updateSiteInventoryTransaction(
       challan_bill_no: toNullableText(input.challanBillNo),
       vehicle_number: toNullableText(input.vehicleNumber),
       remarks: toNullableText(input.remarks),
+      movement_status: normalizeMovementStatus(input.movementStatus),
+      movement_status_updated_by_id: toNullableUuid(input.movementStatusUpdatedById),
+      movement_status_updated_by_name: input.movementStatusUpdatedByName.trim() || null,
     })
     .eq("id", input.transactionId);
 
@@ -313,6 +332,33 @@ export async function updateSiteInventoryTransaction(
   await rebuildSiteInventoryBalances();
 
   return input.transactionId;
+}
+
+export async function updateSiteInventoryTransactionMovementStatus({
+  transactionId,
+  movementStatus,
+  updatedById,
+  updatedByName,
+}: {
+  transactionId: number;
+  movementStatus: SiteInventoryMovementStatus;
+  updatedById: string | null;
+  updatedByName: string;
+}) {
+  const { error } = await supabase
+    .from("site_inventory_transactions")
+    .update({
+      movement_status: normalizeMovementStatus(movementStatus),
+      movement_status_updated_by_id: toNullableUuid(updatedById),
+      movement_status_updated_by_name: updatedByName.trim() || null,
+    })
+    .eq("id", transactionId);
+
+  if (error) {
+    throw new Error(error.message || "Failed to update inventory movement status.");
+  }
+
+  await rebuildSiteInventoryBalances();
 }
 
 export async function deleteSiteInventoryTransaction(transactionId: number) {
@@ -368,7 +414,7 @@ async function fetchTransactionRecords() {
   const { data, error } = await supabase
     .from("site_inventory_transactions")
     .select(
-      "id, created_at, transaction_date, from_source_id, to_source_id, challan_bill_no, vehicle_number, remarks, created_by_id, created_by_name, status"
+      "id, created_at, transaction_date, from_source_id, to_source_id, challan_bill_no, vehicle_number, remarks, created_by_id, created_by_name, status, movement_status, movement_status_updated_at, movement_status_updated_by_id, movement_status_updated_by_name"
     )
     .order("transaction_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -471,7 +517,9 @@ async function rebuildSiteInventoryBalances() {
     sources.map((source) => [source.id, source.sourceType])
   );
   const postedTransactions = transactions.filter(
-    (transaction) => (transaction.status ?? "posted") === "posted"
+    (transaction) =>
+      (transaction.status ?? "posted") === "posted" &&
+      normalizeMovementStatus(transaction.movement_status) === "Received"
   );
   const transactionIds = postedTransactions.map((transaction) => transaction.id);
 
@@ -585,6 +633,12 @@ function mapItemRecord(row: SiteInventoryItemRecord): SiteInventoryItem {
     createdByName: row.created_by_name ?? "",
     isActive: row.is_active ?? true,
   };
+}
+
+function normalizeMovementStatus(value: string | null | undefined): SiteInventoryMovementStatus {
+  return validMovementStatuses.has(value as SiteInventoryMovementStatus)
+    ? (value as SiteInventoryMovementStatus)
+    : "Received";
 }
 
 function normalizeSourceType(value: string): SiteInventorySourceType {

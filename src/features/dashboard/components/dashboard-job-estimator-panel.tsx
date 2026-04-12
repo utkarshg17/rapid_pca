@@ -9,6 +9,7 @@ import { getJobEstimates } from "@/features/dashboard/services/get-job-estimates
 import type { JobEstimate } from "@/features/dashboard/types/job-estimate";
 import { getProjectTypeOptions } from "@/features/projects/services/get-project-type-options";
 import type { ProjectTypeOption } from "@/features/projects/types/project";
+import { formatDisplayDateTime } from "@/lib/date-format";
 
 const selectClassName =
   "h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-sm text-[var(--foreground)] outline-none transition duration-200 focus:border-[var(--border-strong)]";
@@ -354,11 +355,5 @@ function InfoTile({ label, value }: { label: string; value: string }) {
 }
 
 function formatCreatedAt(dateValue: string) {
-  const date = new Date(dateValue);
-
-  if (Number.isNaN(date.getTime())) {
-    return dateValue;
-  }
-
-  return date.toLocaleString();
+  return formatDisplayDateTime(dateValue, dateValue);
 }

@@ -13,6 +13,7 @@ import type {
   SiteInventoryTransaction,
 } from "@/features/dashboard/types/site-inventory";
 import type { ProjectRecord } from "@/features/projects/types/project";
+import { formatDisplayDate, formatDisplayDateTime } from "@/lib/date-format";
 
 type ProjectSiteInventoryPanelProps = {
   project: ProjectRecord;
@@ -111,7 +112,7 @@ export function ProjectSiteInventoryPanel({
 
     return Number.isNaN(latestTimestamp)
       ? "--"
-      : new Date(latestTimestamp).toLocaleString();
+      : formatDisplayDateTime(new Date(latestTimestamp).toISOString());
   }, [projectSiteBalances]);
 
   if (isLoading) {
@@ -464,6 +465,10 @@ function getBalanceMovementHistory(
   let runningTotal = 0;
 
   return transactions
+    .filter(
+      (transaction) =>
+        transaction.status === "posted" && transaction.movementStatus === "Received"
+    )
     .flatMap((transaction) =>
       transaction.lines.flatMap((line) => {
         if (line.itemId !== row.itemId || line.unit !== row.unit) {
@@ -530,13 +535,11 @@ function formatQuantity(value: number) {
 }
 
 function formatDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+  return formatDisplayDate(value, value);
 }
 
 function formatDateTime(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatDisplayDateTime(value, value);
 }
 
 function InfoTile({ label, value }: { label: string; value: string }) {

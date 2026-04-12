@@ -1,4 +1,5 @@
 import type { ProjectRecord } from "@/features/projects/types/project";
+import { formatDisplayDate } from "@/lib/date-format";
 
 type ProjectCharterPanelProps = {
   project: ProjectRecord;
@@ -108,12 +109,7 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 }
 
 function formatDate(dateValue: string | null) {
-  if (!dateValue) return "N/A";
-
-  const date = new Date(dateValue);
-  if (Number.isNaN(date.getTime())) return "N/A";
-
-  return date.toLocaleDateString();
+  return formatDisplayDate(dateValue, "N/A");
 }
 
 function formatLocation(project: ProjectRecord) {
