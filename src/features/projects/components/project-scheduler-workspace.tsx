@@ -101,6 +101,7 @@ const weekWidth = 92;
 const rowHeight = 40;
 const activityIdColumnWidth = 120;
 const activityNameColumnWidth = 190;
+const schedulerStarterStartDate = "2026-03-01";
 const ganttBarInset = 10;
 const ganttArrowWidth = 8;
 const ganttLabelTailWidth = 300;
@@ -129,8 +130,9 @@ export function ProjectSchedulerWorkspace({
   const pendingActivityNameFocusRowKeyRef = useRef<string | null>(null);
   const [ganttScale, setGanttScale] = useState<GanttScale>("days");
   const [activities, setActivities] = useState<SchedulerActivity[]>(() =>
-    buildStarterActivities(project.expected_start_date)
+    buildStarterActivities()
   );
+  const [todayDateValue] = useState(() => getTodayInputDate());
   const [relationshipDraftValues, setRelationshipDraftValues] = useState<
     Record<string, string>
   >({});
@@ -165,6 +167,12 @@ export function ProjectSchedulerWorkspace({
       ),
     [computedSchedule.activities, ganttColumns, ganttCellWidth]
   );
+  const todayMarkerOffset = useMemo(
+    () => findGanttDateOffsetForDate(ganttColumns, todayDateValue, "start"),
+    [ganttColumns, todayDateValue]
+  );
+  const todayMarkerLeft =
+    todayMarkerOffset === null ? null : todayMarkerOffset * ganttCellWidth;
 
   useEffect(() => {
     const rowKey = pendingActivityNameFocusRowKeyRef.current;
@@ -386,7 +394,7 @@ export function ProjectSchedulerWorkspace({
     ]);
   }
 
-  function handleScheduleActivities() {
+  const handleScheduleActivities = useCallback(() => {
     setActivities((currentActivities) => {
       const logicOnlySchedule = computeSchedule(
         currentActivities,
@@ -408,7 +416,31 @@ export function ProjectSchedulerWorkspace({
       }));
     });
     setDateDraftValues({});
-  }
+  }, [project.expected_start_date]);
+
+  useEffect(() => {
+    function handleSchedulerShortcut(event: globalThis.KeyboardEvent) {
+      if (
+        event.key !== "F9" ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.repeat
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      handleScheduleActivities();
+    }
+
+    window.addEventListener("keydown", handleSchedulerShortcut);
+
+    return () => {
+      window.removeEventListener("keydown", handleSchedulerShortcut);
+    };
+  }, [handleScheduleActivities]);
 
   function handleInsertActivityBelow(rowKey: string) {
     setActivities((currentActivities) => {
@@ -517,6 +549,8 @@ export function ProjectSchedulerWorkspace({
           <button
             type="button"
             onClick={handleScheduleActivities}
+            aria-keyshortcuts="F9"
+            title="Schedule activities (F9)"
             className="h-9 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-xs font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
           >
             Schedule
@@ -859,6 +893,18 @@ export function ProjectSchedulerWorkspace({
               </div>
 
                 <div className="relative">
+                  {todayMarkerLeft !== null ? (
+                    <div
+                      className="pointer-events-none absolute top-0 bottom-0 z-30"
+                      style={{ left: todayMarkerLeft }}
+                      title={`Today - ${formatDisplayDate(todayDateValue)}`}
+                    >
+                      <div className="h-full w-px bg-black shadow-[0_0_0_1px_rgba(0,0,0,0.18)]" />
+                      <div className="absolute left-1 top-1 rounded-full bg-black px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-white shadow">
+                        Today
+                      </div>
+                    </div>
+                  ) : null}
                   <svg
                     className="pointer-events-none absolute inset-0 z-20"
                     width={ganttContentWidth}
@@ -1026,8 +1072,8 @@ export function ProjectSchedulerWorkspace({
   );
 }
 
-function buildStarterActivities(expectedStartDate: string | null): SchedulerActivity[] {
-  const baseDate = expectedStartDate || getTodayInputDate();
+function buildStarterActivities(): SchedulerActivity[] {
+  const baseDate = schedulerStarterStartDate;
 
   return [
     {
@@ -1746,10 +1792,18 @@ function findColumnBoundaryOffsetForDate(
   dateValue: string,
   boundary: "start" | "end"
 ) {
+  return findGanttDateOffsetForDate(columns, dateValue, boundary) ?? 0;
+}
+
+function findGanttDateOffsetForDate(
+  columns: GanttColumn[],
+  dateValue: string,
+  boundary: "start" | "end"
+) {
   const targetDate = parseDateValue(dateValue);
 
   if (!targetDate) {
-    return 0;
+    return null;
   }
 
   const columnIndex = columns.findIndex((column) => {
@@ -1767,7 +1821,7 @@ function findColumnBoundaryOffsetForDate(
   });
 
   if (columnIndex < 0) {
-    return 0;
+    return null;
   }
 
   const column = columns[columnIndex];
@@ -1775,7 +1829,7 @@ function findColumnBoundaryOffsetForDate(
   const columnEnd = parseDateValue(column.endDate);
 
   if (!columnStart || !columnEnd) {
-    return columnIndex;
+    return null;
   }
 
   const totalDays =
