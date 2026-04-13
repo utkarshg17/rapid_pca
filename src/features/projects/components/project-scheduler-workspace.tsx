@@ -12,22 +12,18 @@ import {
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getProjectScheduler } from "@/features/projects/services/get-project-scheduler";
+import { saveProjectScheduler } from "@/features/projects/services/save-project-scheduler";
+import type {
+  SchedulerActivity,
+  SchedulerActivityType as ActivityType,
+} from "@/features/projects/types/scheduler";
 import type { ProjectRecord } from "@/features/projects/types/project";
 import { formatDisplayDate as formatDateForDisplay } from "@/lib/date-format";
 
 type ProjectSchedulerWorkspaceProps = {
   project: ProjectRecord;
   backHref: string;
-};
-
-type SchedulerActivity = {
-  rowKey: string;
-  activityId: string;
-  activityName: string;
-  activityType: ActivityType;
-  startDate: string;
-  durationDays: number;
-  predecessorIds: string[];
 };
 
 type ScheduledActivity = SchedulerActivity & {
@@ -69,12 +65,9 @@ type GanttConnection = {
 
 type GanttScale = "days" | "weeks";
 
-type ActivityType =
-  | "Task Dependent"
-  | "Start Milestone"
-  | "Finish Milestone";
-
 type RelationshipField = "predecessor" | "successor";
+
+type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" | "error";
 
 type GanttColumn = {
   id: string;
@@ -101,7 +94,6 @@ const weekWidth = 92;
 const rowHeight = 40;
 const activityIdColumnWidth = 120;
 const activityNameColumnWidth = 190;
-const schedulerStarterStartDate = "2026-03-01";
 const ganttBarInset = 10;
 const ganttArrowWidth = 8;
 const ganttLabelTailWidth = 300;
@@ -128,10 +120,19 @@ export function ProjectSchedulerWorkspace({
   const scrollSyncSourceRef = useRef<"left" | "right" | null>(null);
   const activityNameInputRefs = useRef(new Map<string, HTMLInputElement>());
   const pendingActivityNameFocusRowKeyRef = useRef<string | null>(null);
+  const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestSaveRequestRef = useRef(0);
+  const hasLoadedSchedulerRef = useRef(false);
+  const skipNextAutosaveRef = useRef(false);
+  const scheduleIdRef = useRef<string | null>(null);
   const [ganttScale, setGanttScale] = useState<GanttScale>("days");
-  const [activities, setActivities] = useState<SchedulerActivity[]>(() =>
-    buildStarterActivities()
-  );
+  const [scheduleId, setScheduleId] = useState<string | null>(null);
+  const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
+  const [saveStatus, setSaveStatus] =
+    useState<SchedulerSaveStatus>("loading");
+  const [saveStatusMessage, setSaveStatusMessage] =
+    useState("Loading schedule...");
+  const [activities, setActivities] = useState<SchedulerActivity[]>([]);
   const [todayDateValue] = useState(() => getTodayInputDate());
   const [relationshipDraftValues, setRelationshipDraftValues] = useState<
     Record<string, string>
@@ -173,6 +174,151 @@ export function ProjectSchedulerWorkspace({
   );
   const todayMarkerLeft =
     todayMarkerOffset === null ? null : todayMarkerOffset * ganttCellWidth;
+
+  useEffect(() => {
+    scheduleIdRef.current = scheduleId;
+  }, [scheduleId]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    hasLoadedSchedulerRef.current = false;
+    skipNextAutosaveRef.current = true;
+
+    queueMicrotask(() => {
+      if (isCancelled) {
+        return;
+      }
+
+      setIsLoadingSchedule(true);
+      setSaveStatus("loading");
+      setSaveStatusMessage("Loading schedule...");
+    });
+
+    getProjectScheduler(project.id)
+      .then((schedulerData) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setScheduleId(schedulerData.scheduleId);
+        setActivities(schedulerData.activities);
+        setRelationshipDraftValues({});
+        setDateDraftValues({});
+        setSaveStatus(schedulerData.scheduleId ? "saved" : "idle");
+        setSaveStatusMessage(
+          schedulerData.scheduleId ? "Saved" : "Local draft"
+        );
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error("Error loading scheduler:", error);
+        setSaveStatus("error");
+        setSaveStatusMessage(
+          error instanceof Error ? error.message : "Failed to load schedule."
+        );
+      })
+      .finally(() => {
+        if (isCancelled) {
+          return;
+        }
+
+        hasLoadedSchedulerRef.current = true;
+        setIsLoadingSchedule(false);
+      });
+
+    return () => {
+      isCancelled = true;
+
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current);
+      }
+    };
+  }, [project.id, project.expected_start_date]);
+
+  useEffect(() => {
+    if (!hasLoadedSchedulerRef.current || isLoadingSchedule) {
+      return;
+    }
+
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return;
+    }
+
+    if (saveDebounceRef.current) {
+      clearTimeout(saveDebounceRef.current);
+    }
+
+    const blockingSaveIssue = getSchedulerBlockingSaveIssue(computedSchedule);
+
+    if (blockingSaveIssue) {
+      queueMicrotask(() => {
+        setSaveStatus("blocked");
+        setSaveStatusMessage(blockingSaveIssue);
+      });
+      return;
+    }
+
+    queueMicrotask(() => {
+      setSaveStatus("saving");
+      setSaveStatusMessage("Saving...");
+    });
+
+    const saveRequestId = latestSaveRequestRef.current + 1;
+    latestSaveRequestRef.current = saveRequestId;
+
+    saveDebounceRef.current = setTimeout(() => {
+      saveProjectScheduler({
+        scheduleId: scheduleIdRef.current,
+        projectId: project.id,
+        projectName: project.project_name,
+        expectedStartDate: project.expected_start_date,
+        statusDate: todayDateValue,
+        activities: computedSchedule.activities.map((activity) => ({
+          ...activity,
+          computedEndDate: activity.computedEndDate,
+        })),
+      })
+        .then((result) => {
+          if (latestSaveRequestRef.current !== saveRequestId) {
+            return;
+          }
+
+          scheduleIdRef.current = result.scheduleId;
+          setScheduleId(result.scheduleId);
+          setSaveStatus("saved");
+          setSaveStatusMessage("Saved");
+        })
+        .catch((error: unknown) => {
+          if (latestSaveRequestRef.current !== saveRequestId) {
+            return;
+          }
+
+          console.error("Error saving scheduler:", error);
+          setSaveStatus("error");
+          setSaveStatusMessage(
+            error instanceof Error ? error.message : "Failed to save schedule."
+          );
+        });
+    }, 800);
+
+    return () => {
+      if (saveDebounceRef.current) {
+        clearTimeout(saveDebounceRef.current);
+      }
+    };
+  }, [
+    computedSchedule,
+    isLoadingSchedule,
+    project.expected_start_date,
+    project.id,
+    project.project_name,
+    todayDateValue,
+  ]);
 
   useEffect(() => {
     const rowKey = pendingActivityNameFocusRowKeyRef.current;
@@ -376,6 +522,9 @@ export function ProjectSchedulerWorkspace({
     updateActivity(rowKey, (activity) => ({
       ...activity,
       activityType: nextValue,
+      percentComplete: isMilestoneActivityType(nextValue)
+        ? 0
+        : activity.percentComplete,
       durationDays: isMilestoneActivityType(nextValue)
         ? 0
         : Math.max(clampDuration(activity.durationDays, nextValue), 1),
@@ -555,6 +704,16 @@ export function ProjectSchedulerWorkspace({
           >
             Schedule
           </button>
+          <span
+            className={[
+              "inline-flex h-9 items-center rounded-xl border px-3 text-[10px] font-semibold uppercase tracking-[0.08em]",
+              getSaveStatusClassName(saveStatus),
+            ].join(" ")}
+            style={{ color: "var(--status-contrast-text)" }}
+            title={saveStatusMessage}
+          >
+            {saveStatusMessage}
+          </span>
           <button
             type="button"
             onClick={handleAddActivity}
@@ -565,6 +724,13 @@ export function ProjectSchedulerWorkspace({
         </div>
       </div>
 
+      {isLoadingSchedule ? (
+        <Card className="flex min-h-0 flex-1 items-center justify-center p-6">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] px-6 py-4 text-sm font-semibold text-[var(--foreground)]">
+            Loading schedule...
+          </div>
+        </Card>
+      ) : (
         <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
           <Card className="flex min-h-0 flex-col p-3">
             <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)]">
@@ -573,13 +739,14 @@ export function ProjectSchedulerWorkspace({
               onScroll={() => syncPaneScroll("left")}
               className="relative isolate h-full overflow-auto overscroll-contain bg-[var(--panel)]"
             >
-              <table className="w-full min-w-[1188px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+              <table className="w-full min-w-[1284px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
                 <colgroup>
                   <col style={{ width: activityIdColumnWidth }} />
                   <col style={{ width: activityNameColumnWidth }} />
                   <col style={{ width: "128px" }} />
                   <col style={{ width: "74px" }} />
                   <col style={{ width: "108px" }} />
+                  <col style={{ width: "96px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "148px" }} />
@@ -607,6 +774,9 @@ export function ProjectSchedulerWorkspace({
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       End Date
+                    </th>
+                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
+                      % Complete
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Predecessor
@@ -738,6 +908,7 @@ export function ProjectSchedulerWorkspace({
                                 ? {
                                     activityType: "Start Milestone",
                                     durationDays: 0,
+                                    percentComplete: 0,
                                   }
                                 : {
                                     durationDays: clampDuration(
@@ -762,6 +933,28 @@ export function ProjectSchedulerWorkspace({
                         >
                           {formatDisplayDate(activity.computedEndDate)}
                         </div>
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={String(
+                            isMilestoneActivity(activity)
+                              ? 0
+                              : activity.percentComplete
+                          )}
+                          disabled={isMilestoneActivity(activity)}
+                          onChange={(event) =>
+                            updateActivity(activity.rowKey, (currentActivity) => ({
+                              ...currentActivity,
+                              percentComplete: clampPercentComplete(
+                                event.target.value
+                              ),
+                            }))
+                          }
+                          className={compactInputClassName}
+                        />
                       </td>
                       <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <Input
@@ -994,6 +1187,9 @@ export function ProjectSchedulerWorkspace({
                     visualBounds && !visualBounds.isMilestone
                       ? Math.max(visualBounds.endX - visualBounds.startX, 36)
                       : barWidth;
+                  const completionPercent = isMilestone
+                    ? 0
+                    : clampPercentComplete(activity.percentComplete);
 
                   return (
                     <div
@@ -1043,7 +1239,7 @@ export function ProjectSchedulerWorkspace({
                           >
                             <span
                               className={[
-                                "h-5 rounded-lg shadow",
+                                "relative h-5 overflow-hidden rounded-lg shadow",
                                 activity.hasCircularDependency
                                   ? "bg-amber-500"
                                   : activity.unresolvedPredecessors.length > 0
@@ -1051,7 +1247,14 @@ export function ProjectSchedulerWorkspace({
                                     : "bg-emerald-600",
                               ].join(" ")}
                               style={{ width: visualBarWidth }}
-                            />
+                            >
+                              {completionPercent > 0 ? (
+                                <span
+                                  className="absolute inset-y-0 left-0 bg-blue-500"
+                                  style={{ width: `${completionPercent}%` }}
+                                />
+                              ) : null}
+                            </span>
                             <span className="whitespace-nowrap rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] font-semibold text-[var(--foreground)] shadow-sm ring-1 ring-[var(--border)]">
                               {activityLabel}
                             </span>
@@ -1068,194 +1271,9 @@ export function ProjectSchedulerWorkspace({
           </div>
         </Card>
       </div>
+      )}
     </div>
   );
-}
-
-function buildStarterActivities(): SchedulerActivity[] {
-  const baseDate = schedulerStarterStartDate;
-
-  return [
-    {
-      rowKey: createRowKey(),
-      activityId: "A100",
-      activityName: "Site Mobilization",
-      startDate: baseDate,
-      durationDays: 3,
-      predecessorIds: [],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A110",
-      activityName: "Site Preparation",
-      startDate: baseDate,
-      durationDays: 7,
-      predecessorIds: ["A100"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A120",
-      activityName: "Long-Lead Procurement",
-      startDate: baseDate,
-      durationDays: 12,
-      predecessorIds: ["A100"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A130",
-      activityName: "Temporary Utilities",
-      startDate: addDaysToInputDate(baseDate, 1),
-      durationDays: 5,
-      predecessorIds: ["A100"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A200",
-      activityName: "Survey + Layout",
-      startDate: addDaysToInputDate(baseDate, 5),
-      durationDays: 4,
-      predecessorIds: ["A110"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A210",
-      activityName: "Excavation",
-      startDate: addDaysToInputDate(baseDate, 8),
-      durationDays: 8,
-      predecessorIds: ["A200"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A220",
-      activityName: "PCC + Blinding",
-      startDate: addDaysToInputDate(baseDate, 16),
-      durationDays: 4,
-      predecessorIds: ["A210"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A230",
-      activityName: "Footings + Foundation Beams",
-      startDate: addDaysToInputDate(baseDate, 18),
-      durationDays: 14,
-      predecessorIds: ["A220"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A240",
-      activityName: "Backfilling + Compaction",
-      startDate: addDaysToInputDate(baseDate, 31),
-      durationDays: 5,
-      predecessorIds: ["A230"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A300",
-      activityName: "Ground Floor Slab",
-      startDate: addDaysToInputDate(baseDate, 34),
-      durationDays: 7,
-      predecessorIds: ["A240"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A310",
-      activityName: "Upper Floor Structure",
-      startDate: addDaysToInputDate(baseDate, 40),
-      durationDays: 42,
-      predecessorIds: ["A300", "A120"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A320",
-      activityName: "Masonry / Internal Partitions",
-      startDate: addDaysToInputDate(baseDate, 54),
-      durationDays: 24,
-      predecessorIds: ["A310"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A330",
-      activityName: "Roof Waterproofing",
-      startDate: addDaysToInputDate(baseDate, 79),
-      durationDays: 6,
-      predecessorIds: ["A310"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A400",
-      activityName: "MEP Sleeves + Shafts",
-      startDate: addDaysToInputDate(baseDate, 48),
-      durationDays: 10,
-      predecessorIds: ["A310", "A130"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A410",
-      activityName: "MEP Rough-In",
-      startDate: addDaysToInputDate(baseDate, 60),
-      durationDays: 20,
-      predecessorIds: ["A320", "A400"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A420",
-      activityName: "External Plaster + Paint Base",
-      startDate: addDaysToInputDate(baseDate, 70),
-      durationDays: 18,
-      predecessorIds: ["A320"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A500",
-      activityName: "Internal Plaster",
-      startDate: addDaysToInputDate(baseDate, 78),
-      durationDays: 16,
-      predecessorIds: ["A320", "A410"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A510",
-      activityName: "Flooring",
-      startDate: addDaysToInputDate(baseDate, 92),
-      durationDays: 12,
-      predecessorIds: ["A500"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A520",
-      activityName: "Doors + Windows Installation",
-      startDate: addDaysToInputDate(baseDate, 92),
-      durationDays: 10,
-      predecessorIds: ["A500"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A530",
-      activityName: "Internal Paint",
-      startDate: addDaysToInputDate(baseDate, 103),
-      durationDays: 10,
-      predecessorIds: ["A510", "A520"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A540",
-      activityName: "Fixtures + Testing",
-      startDate: addDaysToInputDate(baseDate, 108),
-      durationDays: 8,
-      predecessorIds: ["A530", "A420"],
-    },
-    {
-      rowKey: createRowKey(),
-      activityId: "A600",
-      activityName: "Snagging + Handover",
-      startDate: addDaysToInputDate(baseDate, 116),
-      durationDays: 7,
-      predecessorIds: ["A540", "A330"],
-    },
-  ].map((activity) => ({
-    ...activity,
-    activityType: "Task Dependent",
-  }));
 }
 
 function computeSchedule(
@@ -1900,6 +1918,38 @@ function buildActivityTitle(activity: ScheduledActivity) {
   return parts.filter(Boolean).join(" ");
 }
 
+function getSchedulerBlockingSaveIssue(schedule: ScheduleComputation) {
+  if (
+    schedule.activities.some(
+      (activity) => normalizeRelationshipId(activity.activityId) === ""
+    )
+  ) {
+    return "Activity IDs required";
+  }
+
+  if (schedule.duplicateIds.length > 0) {
+    return "Fix duplicate IDs";
+  }
+
+  return "";
+}
+
+function getSaveStatusClassName(status: SchedulerSaveStatus) {
+  if (status === "saving" || status === "loading") {
+    return "border-amber-500/60 bg-amber-100 dark:border-amber-400/50 dark:bg-amber-500/15";
+  }
+
+  if (status === "saved") {
+    return "border-emerald-600/50 bg-emerald-100 dark:border-emerald-400/50 dark:bg-emerald-500/15";
+  }
+
+  if (status === "blocked" || status === "error") {
+    return "border-red-600/50 bg-red-100 dark:border-red-400/50 dark:bg-red-500/15";
+  }
+
+  return "border-[var(--border)] bg-[var(--input-bg)]";
+}
+
 function buildNextActivityId(activities: SchedulerActivity[]) {
   const numericValues = activities
     .map((activity) => {
@@ -1923,6 +1973,7 @@ function buildBlankActivity(
     activityType: "Task Dependent",
     startDate,
     durationDays: 5,
+    percentComplete: 0,
     predecessorIds: [],
   };
 }
@@ -1948,6 +1999,20 @@ function clampDuration(
 
   if (!Number.isFinite(numericValue) || numericValue < minimumDuration) {
     return minimumDuration;
+  }
+
+  return Math.round(numericValue);
+}
+
+function clampPercentComplete(value: string | number) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+
+  if (numericValue > 100) {
+    return 100;
   }
 
   return Math.round(numericValue);
@@ -2115,5 +2180,13 @@ function endOfWeek(date: Date) {
 }
 
 function createRowKey() {
-  return Math.random().toString(36).slice(2, 10);
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const randomValue = Math.floor(Math.random() * 16);
+    const value = char === "x" ? randomValue : (randomValue & 0x3) | 0x8;
+    return value.toString(16);
+  });
 }

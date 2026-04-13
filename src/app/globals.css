@@ -32,6 +32,7 @@
   --status-info-bg: rgba(100, 116, 139, 0.12);
   --status-info-border: rgba(100, 116, 139, 0.3);
   --status-info-fg: #e2e8f0;
+  --status-contrast-text: #ffffff;
 }
 
 html[data-theme="light"] {
@@ -66,6 +67,7 @@ html[data-theme="light"] {
   --status-info-bg: rgba(100, 116, 139, 0.1);
   --status-info-border: rgba(100, 116, 139, 0.24);
   --status-info-fg: #334155;
+  --status-contrast-text: #000000;
 }
 
 html,

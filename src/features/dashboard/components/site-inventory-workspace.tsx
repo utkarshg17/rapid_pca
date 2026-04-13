@@ -1691,6 +1691,7 @@ function MovementStatusSelect({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value as SiteInventoryMovementStatus)}
+      style={{ color: "var(--status-contrast-text)" }}
       className={[
         "h-9 rounded-full border px-3 text-xs font-semibold outline-none transition duration-200 disabled:cursor-not-allowed disabled:opacity-60",
         getMovementStatusClassName(value),
@@ -1779,15 +1780,15 @@ function isReceivedInventoryMovement(transaction: SiteInventoryTransaction) {
 function getMovementStatusClassName(status: SiteInventoryMovementStatus) {
   switch (status) {
     case "Received":
-      return "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-300";
+      return "border-green-600/50 bg-green-100 dark:border-green-400/50 dark:bg-green-500/15";
     case "In Transit":
-      return "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return "border-amber-500/60 bg-amber-100 dark:border-amber-400/50 dark:bg-amber-500/15";
     case "Disputed":
-      return "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300";
+      return "border-red-600/50 bg-red-100 dark:border-red-400/50 dark:bg-red-500/15";
     case "Cancelled":
-      return "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300";
+      return "border-red-600/50 bg-red-100 dark:border-red-400/50 dark:bg-red-500/15";
     default:
-      return "border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)]";
+      return "border-[var(--border)] bg-[var(--surface)]";
   }
 }
 function isTransactionLineTouched(line: TransactionLineDraft) {
