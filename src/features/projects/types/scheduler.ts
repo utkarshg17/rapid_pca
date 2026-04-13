@@ -11,6 +11,9 @@ export type SchedulerActivity = {
   startDate: string;
   durationDays: number;
   percentComplete: number;
+  materialCost: number;
+  labourCost: number;
+  equipmentCost: number;
   predecessorIds: string[];
 };
 

@@ -176,6 +176,9 @@ async function upsertActivities(
         activityType === "Task Dependent"
           ? clampPercentComplete(activity.percentComplete)
           : 0,
+      material_cost: normalizeCost(activity.materialCost),
+      labour_cost: normalizeCost(activity.labourCost),
+      equipment_cost: normalizeCost(activity.equipmentCost),
       is_active: true,
     };
   });
@@ -326,4 +329,14 @@ function clampPercentComplete(value: string | number) {
   }
 
   return Math.round(numericValue);
+}
+
+function normalizeCost(value: string | number) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+
+  return numericValue;
 }

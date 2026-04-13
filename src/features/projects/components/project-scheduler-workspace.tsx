@@ -69,6 +69,12 @@ type RelationshipField = "predecessor" | "successor";
 
 type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" | "error";
 
+type ActivityResourceCostDraft = {
+  materialCost: string;
+  labourCost: string;
+  equipmentCost: string;
+};
+
 type GanttColumn = {
   id: string;
   startDate: string;
@@ -107,6 +113,16 @@ const activityTypes: ActivityType[] = [
   "Start Milestone",
   "Finish Milestone",
 ];
+const emptyResourceCostDraft: ActivityResourceCostDraft = {
+  materialCost: "",
+  labourCost: "",
+  equipmentCost: "",
+};
+const inrCurrencyFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 0,
+});
 const compactInputClassName = "h-8 rounded-lg px-2 py-1 text-[11px]";
 const compactSelectClassName =
   "h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-2 py-1 text-[11px] text-[var(--foreground)] outline-none transition duration-200 focus:border-[var(--border-strong)]";
@@ -140,6 +156,11 @@ export function ProjectSchedulerWorkspace({
   const [dateDraftValues, setDateDraftValues] = useState<
     Record<string, string>
   >({});
+  const [resourceDialogRowKey, setResourceDialogRowKey] = useState<
+    string | null
+  >(null);
+  const [resourceCostDraft, setResourceCostDraft] =
+    useState<ActivityResourceCostDraft>(emptyResourceCostDraft);
 
   const computedSchedule = useMemo(
     () => computeSchedule(activities, project.expected_start_date),
@@ -174,6 +195,19 @@ export function ProjectSchedulerWorkspace({
   );
   const todayMarkerLeft =
     todayMarkerOffset === null ? null : todayMarkerOffset * ganttCellWidth;
+  const selectedResourceActivity = useMemo(
+    () =>
+      resourceDialogRowKey
+        ? computedSchedule.activities.find(
+            (activity) => activity.rowKey === resourceDialogRowKey
+          ) ?? null
+        : null,
+    [computedSchedule.activities, resourceDialogRowKey]
+  );
+  const resourceDraftTotal =
+    parseMoneyInput(resourceCostDraft.materialCost) +
+    parseMoneyInput(resourceCostDraft.labourCost) +
+    parseMoneyInput(resourceCostDraft.equipmentCost);
 
   useEffect(() => {
     scheduleIdRef.current = scheduleId;
@@ -205,6 +239,8 @@ export function ProjectSchedulerWorkspace({
         setActivities(schedulerData.activities);
         setRelationshipDraftValues({});
         setDateDraftValues({});
+        setResourceDialogRowKey(null);
+        setResourceCostDraft(emptyResourceCostDraft);
         setSaveStatus(schedulerData.scheduleId ? "saved" : "idle");
         setSaveStatusMessage(
           schedulerData.scheduleId ? "Saved" : "Local draft"
@@ -664,6 +700,50 @@ export function ProjectSchedulerWorkspace({
     });
   }
 
+  function getActivityEstimatedCost(activity: SchedulerActivity) {
+    return (
+      activity.materialCost + activity.labourCost + activity.equipmentCost
+    );
+  }
+
+  function handleOpenResourceDialog(activity: ScheduledActivity) {
+    setResourceDialogRowKey(activity.rowKey);
+    setResourceCostDraft({
+      materialCost: formatMoneyDraftValue(activity.materialCost),
+      labourCost: formatMoneyDraftValue(activity.labourCost),
+      equipmentCost: formatMoneyDraftValue(activity.equipmentCost),
+    });
+  }
+
+  function handleCloseResourceDialog() {
+    setResourceDialogRowKey(null);
+    setResourceCostDraft(emptyResourceCostDraft);
+  }
+
+  function handleResourceCostDraftChange(
+    field: keyof ActivityResourceCostDraft,
+    nextValue: string
+  ) {
+    setResourceCostDraft((currentDraft) => ({
+      ...currentDraft,
+      [field]: nextValue,
+    }));
+  }
+
+  function handleSaveResourceCosts() {
+    if (!resourceDialogRowKey) {
+      return;
+    }
+
+    updateActivity(resourceDialogRowKey, (activity) => ({
+      ...activity,
+      materialCost: parseMoneyInput(resourceCostDraft.materialCost),
+      labourCost: parseMoneyInput(resourceCostDraft.labourCost),
+      equipmentCost: parseMoneyInput(resourceCostDraft.equipmentCost),
+    }));
+    handleCloseResourceDialog();
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 text-[var(--foreground)]">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 shadow-[var(--shadow-lg)]">
@@ -739,7 +819,7 @@ export function ProjectSchedulerWorkspace({
               onScroll={() => syncPaneScroll("left")}
               className="relative isolate h-full overflow-auto overscroll-contain bg-[var(--panel)]"
             >
-              <table className="w-full min-w-[1284px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+              <table className="w-full min-w-[1488px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
                 <colgroup>
                   <col style={{ width: activityIdColumnWidth }} />
                   <col style={{ width: activityNameColumnWidth }} />
@@ -749,8 +829,9 @@ export function ProjectSchedulerWorkspace({
                   <col style={{ width: "96px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "150px" }} />
+                  <col style={{ width: "132px" }} />
                   <col style={{ width: "148px" }} />
-                  <col style={{ width: "76px" }} />
+                  <col style={{ width: "104px" }} />
                 </colgroup>
                 <thead className="bg-[var(--panel)]">
                   <tr>
@@ -783,6 +864,9 @@ export function ProjectSchedulerWorkspace({
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Successor
+                    </th>
+                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
+                      Estimated Cost
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Activity Type
@@ -1014,6 +1098,16 @@ export function ProjectSchedulerWorkspace({
                         />
                       </td>
                       <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <div
+                          className="flex h-8 items-center rounded-lg border border-[var(--border)] bg-[var(--panel-soft)] px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                          title="Material + Labour + Equipment"
+                        >
+                          {formatCurrencyInr(
+                            getActivityEstimatedCost(activity)
+                          )}
+                        </div>
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <select
                           value={activity.activityType}
                           onChange={(event) =>
@@ -1032,13 +1126,26 @@ export function ProjectSchedulerWorkspace({
                         </select>
                       </td>
                       <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteActivity(activity.rowKey)}
-                          className="h-8 rounded-lg border border-[var(--border)] px-2 text-[10px] font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-300"
-                        >
-                          Delete
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenResourceDialog(activity)}
+                            aria-label={`Add resources for ${
+                              activity.activityName || activity.activityId
+                            }`}
+                            title="Add resources"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-green-500 hover:text-green-600 dark:hover:text-green-300"
+                          >
+                            <UserPlusIcon />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteActivity(activity.rowKey)}
+                            className="h-8 rounded-lg border border-[var(--border)] px-2 text-[10px] font-medium text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-red-400 hover:text-red-600 dark:hover:text-red-300"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1272,7 +1379,150 @@ export function ProjectSchedulerWorkspace({
         </Card>
       </div>
       )}
+
+      {selectedResourceActivity ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="scheduler-resource-dialog-title"
+          onClick={handleCloseResourceDialog}
+        >
+          <div
+            className="w-full max-w-2xl rounded-3xl border border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] shadow-[var(--shadow-lg)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--subtle)]">
+                  Resource Loading
+                </p>
+                <h2
+                  id="scheduler-resource-dialog-title"
+                  className="mt-1 text-2xl font-semibold tracking-tight"
+                >
+                  {selectedResourceActivity.activityName || "Untitled Activity"}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {selectedResourceActivity.activityId || "No activity ID"} -
+                  add the PM&apos;s estimated resource cost split.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseResourceDialog}
+                className="rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-2 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:cursor-pointer hover:border-[var(--border-strong)]"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Material Cost
+                </span>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={resourceCostDraft.materialCost}
+                  onChange={(event) =>
+                    handleResourceCostDraftChange(
+                      "materialCost",
+                      event.target.value
+                    )
+                  }
+                  placeholder="0"
+                  className="h-11 rounded-xl text-sm"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Labour Cost
+                </span>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={resourceCostDraft.labourCost}
+                  onChange={(event) =>
+                    handleResourceCostDraftChange(
+                      "labourCost",
+                      event.target.value
+                    )
+                  }
+                  placeholder="0"
+                  className="h-11 rounded-xl text-sm"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Equipment Cost
+                </span>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={resourceCostDraft.equipmentCost}
+                  onChange={(event) =>
+                    handleResourceCostDraftChange(
+                      "equipmentCost",
+                      event.target.value
+                    )
+                  }
+                  placeholder="0"
+                  className="h-11 rounded-xl text-sm"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--panel-soft)] px-4 py-3">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--subtle)]">
+                Estimated Cost
+              </span>
+              <span className="text-xl font-semibold text-[var(--foreground)]">
+                {formatCurrencyInr(resourceDraftTotal)}
+              </span>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCloseResourceDialog}
+                className="rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-2 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:cursor-pointer hover:border-[var(--border-strong)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveResourceCosts}
+                className="rounded-xl bg-green-600 px-4 py-2 text-xs font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
+              >
+                Save Resources
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function UserPlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+      <path d="M3.5 21a6.5 6.5 0 0 1 13 0" />
+      <path d="M18 8v6" />
+      <path d="M15 11h6" />
+    </svg>
   );
 }
 
@@ -1974,6 +2224,9 @@ function buildBlankActivity(
     startDate,
     durationDays: 5,
     percentComplete: 0,
+    materialCost: 0,
+    labourCost: 0,
+    equipmentCost: 0,
     predecessorIds: [],
   };
 }
@@ -2165,6 +2418,24 @@ function formatDisplayDate(value: string) {
 
 function formatShortDate(value: Date) {
   return formatDateForDisplay(toInputDate(value), "--");
+}
+
+function formatCurrencyInr(value: number) {
+  return inrCurrencyFormatter.format(value);
+}
+
+function formatMoneyDraftValue(value: number) {
+  return value > 0 ? String(value) : "";
+}
+
+function parseMoneyInput(value: string) {
+  const numericValue = Number(value.replace(/,/g, "").trim());
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+
+  return numericValue;
 }
 
 function startOfWeek(date: Date) {

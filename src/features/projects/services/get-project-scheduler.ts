@@ -18,6 +18,9 @@ type SchedulerActivityRow = {
   start_date: string | null;
   duration_days: number | null;
   percent_complete: number | null;
+  material_cost: number | null;
+  labour_cost: number | null;
+  equipment_cost: number | null;
 };
 
 type SchedulerRelationshipRow = {
@@ -52,7 +55,7 @@ export async function getProjectScheduler(
   const { data: activityRows, error: activityError } = await supabase
     .from("scheduler_activities")
     .select(
-      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete"
+      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete, material_cost, labour_cost, equipment_cost"
     )
     .eq("schedule_id", schedule.id)
     .eq("is_active", true)
@@ -132,6 +135,9 @@ export async function getProjectScheduler(
             activityType === "Task Dependent"
               ? clampPercentComplete(activity.percent_complete ?? 0)
               : 0,
+          materialCost: normalizeCost(activity.material_cost),
+          labourCost: normalizeCost(activity.labour_cost),
+          equipmentCost: normalizeCost(activity.equipment_cost),
           predecessorIds:
             predecessorIdsBySuccessorRowId.get(activity.id)?.map((id) =>
               id.trim().toUpperCase()
@@ -166,4 +172,14 @@ function clampPercentComplete(value: string | number) {
   }
 
   return Math.round(numericValue);
+}
+
+function normalizeCost(value: string | number | null) {
+  const numericValue = Number(value ?? 0);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return 0;
+  }
+
+  return numericValue;
 }
