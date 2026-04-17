@@ -65,6 +65,8 @@ type GanttConnection = {
 
 type GanttScale = "days" | "weeks";
 
+type StartDateSortMode = "normal" | "ascending" | "descending";
+
 type RelationshipField = "predecessor" | "successor";
 
 type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" | "error";
@@ -142,6 +144,8 @@ export function ProjectSchedulerWorkspace({
   const skipNextAutosaveRef = useRef(false);
   const scheduleIdRef = useRef<string | null>(null);
   const [ganttScale, setGanttScale] = useState<GanttScale>("days");
+  const [startDateSortMode, setStartDateSortMode] =
+    useState<StartDateSortMode>("normal");
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [saveStatus, setSaveStatus] =
@@ -166,6 +170,14 @@ export function ProjectSchedulerWorkspace({
     () => computeSchedule(activities, project.expected_start_date),
     [activities, project.expected_start_date]
   );
+  const displayedActivities = useMemo(
+    () =>
+      getSortedScheduledActivities(
+        computedSchedule.activities,
+        startDateSortMode
+      ),
+    [computedSchedule.activities, startDateSortMode]
+  );
   const ganttColumns = useMemo(
     () => buildGanttColumns(computedSchedule, ganttScale),
     [computedSchedule, ganttScale]
@@ -177,17 +189,17 @@ export function ProjectSchedulerWorkspace({
   );
   const ganttContentWidth = ganttTimelineWidth + ganttLabelTailWidth;
   const ganttConnections = useMemo(
-    () => buildGanttConnections(computedSchedule.activities, ganttColumns),
-    [computedSchedule.activities, ganttColumns]
+    () => buildGanttConnections(displayedActivities, ganttColumns),
+    [displayedActivities, ganttColumns]
   );
   const ganttVisualBoundsById = useMemo(
     () =>
       buildGanttVisualBounds(
-        computedSchedule.activities,
+        displayedActivities,
         ganttColumns,
         ganttCellWidth
       ),
-    [computedSchedule.activities, ganttColumns, ganttCellWidth]
+    [displayedActivities, ganttColumns, ganttCellWidth]
   );
   const todayMarkerOffset = useMemo(
     () => findGanttDateOffsetForDate(ganttColumns, todayDateValue, "start"),
@@ -554,6 +566,20 @@ export function ProjectSchedulerWorkspace({
     });
   }
 
+  function handleStartDateSortToggle() {
+    setStartDateSortMode((currentSortMode) => {
+      if (currentSortMode === "normal") {
+        return "ascending";
+      }
+
+      if (currentSortMode === "ascending") {
+        return "descending";
+      }
+
+      return "normal";
+    });
+  }
+
   function handleActivityTypeChange(rowKey: string, nextValue: ActivityType) {
     updateActivity(rowKey, (activity) => ({
       ...activity,
@@ -848,7 +874,18 @@ export function ProjectSchedulerWorkspace({
                       Activity
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
-                      Start Date
+                      <button
+                        type="button"
+                        onClick={handleStartDateSortToggle}
+                        className="flex w-full items-center justify-between gap-1 text-left uppercase tracking-[0.14em] transition duration-200 hover:cursor-pointer hover:text-[var(--foreground)]"
+                        title="Toggle start date sort: normal, ascending, descending"
+                        aria-label={`Start date sort is ${startDateSortMode}. Click to change.`}
+                      >
+                        <span>Start Date</span>
+                        <span className="text-[11px] font-bold tracking-normal text-[var(--foreground)]">
+                          {getStartDateSortIndicator(startDateSortMode)}
+                        </span>
+                      </button>
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Duration
@@ -877,7 +914,7 @@ export function ProjectSchedulerWorkspace({
                   </tr>
                 </thead>
               <tbody>
-                {computedSchedule.activities.map((activity) => {
+                {displayedActivities.map((activity) => {
                   const warningText = buildActivityIssueText(activity);
                   const activityTitle = buildActivityTitle(activity);
                   const predecessorDraftKey = buildRelationshipDraftKey(
@@ -1208,9 +1245,9 @@ export function ProjectSchedulerWorkspace({
                   <svg
                     className="pointer-events-none absolute inset-0 z-20"
                     width={ganttContentWidth}
-                    height={computedSchedule.activities.length * rowHeight}
+                    height={displayedActivities.length * rowHeight}
                     viewBox={`0 0 ${ganttContentWidth} ${
-                      computedSchedule.activities.length * rowHeight
+                      displayedActivities.length * rowHeight
                     }`}
                     fill="none"
                     >
@@ -1262,7 +1299,7 @@ export function ProjectSchedulerWorkspace({
                     })}
                   </svg>
 
-                  {computedSchedule.activities.map((activity) => {
+                  {displayedActivities.map((activity) => {
                   const startOffset = findColumnBoundaryOffsetForDate(
                     ganttColumns,
                     activity.computedStartDate,
@@ -1524,6 +1561,53 @@ function UserPlusIcon() {
       <path d="M15 11h6" />
     </svg>
   );
+}
+
+function getSortedScheduledActivities(
+  activities: ScheduledActivity[],
+  sortMode: StartDateSortMode
+) {
+  if (sortMode === "normal") {
+    return activities;
+  }
+
+  return activities
+    .map((activity, originalIndex) => ({
+      activity,
+      originalIndex,
+      startTime: getActivitySortStartTime(activity),
+    }))
+    .sort((firstActivity, secondActivity) => {
+      const dateComparison =
+        firstActivity.startTime - secondActivity.startTime;
+
+      if (dateComparison !== 0) {
+        return sortMode === "ascending" ? dateComparison : -dateComparison;
+      }
+
+      return firstActivity.originalIndex - secondActivity.originalIndex;
+    })
+    .map(({ activity }) => activity);
+}
+
+function getActivitySortStartTime(activity: ScheduledActivity) {
+  const startDate =
+    parseDateValue(activity.computedStartDate) ??
+    parseDateValue(activity.startDate);
+
+  return startDate?.getTime() ?? Number.MAX_SAFE_INTEGER;
+}
+
+function getStartDateSortIndicator(sortMode: StartDateSortMode) {
+  if (sortMode === "ascending") {
+    return "↑";
+  }
+
+  if (sortMode === "descending") {
+    return "↓";
+  }
+
+  return "--";
 }
 
 function computeSchedule(
