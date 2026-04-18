@@ -4,7 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Rapid PCA",
-  description: "Construction field-to-office data platform",
+  description:
+    "Construction project software for labour attendance, monthly reports, simple schedules, project costs, budgets, and estimates.",
 };
 
 export default function RootLayout({
