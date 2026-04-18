@@ -11,6 +11,7 @@ export type SchedulerActivity = {
   startDate: string;
   durationDays: number;
   percentComplete: number;
+  costCodeItem: string;
   materialCost: number;
   labourCost: number;
   equipmentCost: number;
@@ -20,6 +21,11 @@ export type SchedulerActivity = {
 export type SchedulerPersistenceData = {
   scheduleId: string | null;
   activities: SchedulerActivity[];
+};
+
+export type SchedulerCostCodeItemOption = {
+  item: string;
+  costCode: string;
 };
 
 export type SaveSchedulerActivityInput = SchedulerActivity & {

@@ -12,10 +12,12 @@ import {
 
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { getSchedulerCostCodeItemOptions } from "@/features/projects/services/get-scheduler-cost-code-item-options";
 import { getProjectScheduler } from "@/features/projects/services/get-project-scheduler";
 import { saveProjectScheduler } from "@/features/projects/services/save-project-scheduler";
 import type {
   SchedulerActivity,
+  SchedulerCostCodeItemOption,
   SchedulerActivityType as ActivityType,
 } from "@/features/projects/types/scheduler";
 import type { ProjectRecord } from "@/features/projects/types/project";
@@ -72,6 +74,7 @@ type RelationshipField = "predecessor" | "successor";
 type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" | "error";
 
 type ActivityResourceCostDraft = {
+  costCodeItem: string;
   materialCost: string;
   labourCost: string;
   equipmentCost: string;
@@ -116,6 +119,7 @@ const activityTypes: ActivityType[] = [
   "Finish Milestone",
 ];
 const emptyResourceCostDraft: ActivityResourceCostDraft = {
+  costCodeItem: "",
   materialCost: "",
   labourCost: "",
   equipmentCost: "",
@@ -148,11 +152,15 @@ export function ProjectSchedulerWorkspace({
     useState<StartDateSortMode>("normal");
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
+  const [isLoadingCostCodeItems, setIsLoadingCostCodeItems] = useState(true);
   const [saveStatus, setSaveStatus] =
     useState<SchedulerSaveStatus>("loading");
   const [saveStatusMessage, setSaveStatusMessage] =
     useState("Loading schedule...");
   const [activities, setActivities] = useState<SchedulerActivity[]>([]);
+  const [costCodeItemOptions, setCostCodeItemOptions] = useState<
+    SchedulerCostCodeItemOption[]
+  >([]);
   const [todayDateValue] = useState(() => getTodayInputDate());
   const [relationshipDraftValues, setRelationshipDraftValues] = useState<
     Record<string, string>
@@ -220,10 +228,50 @@ export function ProjectSchedulerWorkspace({
     parseMoneyInput(resourceCostDraft.materialCost) +
     parseMoneyInput(resourceCostDraft.labourCost) +
     parseMoneyInput(resourceCostDraft.equipmentCost);
+  const selectedResourceCostCodeOption = useMemo(
+    () =>
+      findCostCodeItemOption(
+        resourceCostDraft.costCodeItem,
+        costCodeItemOptions
+      ),
+    [costCodeItemOptions, resourceCostDraft.costCodeItem]
+  );
 
   useEffect(() => {
     scheduleIdRef.current = scheduleId;
   }, [scheduleId]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    getSchedulerCostCodeItemOptions()
+      .then((options) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setCostCodeItemOptions(options);
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error("Error loading scheduler cost code item options:", error);
+        setCostCodeItemOptions([]);
+      })
+      .finally(() => {
+        if (isCancelled) {
+          return;
+        }
+
+        setIsLoadingCostCodeItems(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -735,6 +783,7 @@ export function ProjectSchedulerWorkspace({
   function handleOpenResourceDialog(activity: ScheduledActivity) {
     setResourceDialogRowKey(activity.rowKey);
     setResourceCostDraft({
+      costCodeItem: activity.costCodeItem,
       materialCost: formatMoneyDraftValue(activity.materialCost),
       labourCost: formatMoneyDraftValue(activity.labourCost),
       equipmentCost: formatMoneyDraftValue(activity.equipmentCost),
@@ -763,6 +812,7 @@ export function ProjectSchedulerWorkspace({
 
     updateActivity(resourceDialogRowKey, (activity) => ({
       ...activity,
+      costCodeItem: normalizeCostCodeItem(resourceCostDraft.costCodeItem),
       materialCost: parseMoneyInput(resourceCostDraft.materialCost),
       labourCost: parseMoneyInput(resourceCostDraft.labourCost),
       equipmentCost: parseMoneyInput(resourceCostDraft.equipmentCost),
@@ -845,7 +895,7 @@ export function ProjectSchedulerWorkspace({
               onScroll={() => syncPaneScroll("left")}
               className="relative isolate h-full overflow-auto overscroll-contain bg-[var(--panel)]"
             >
-              <table className="w-full min-w-[1488px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+              <table className="w-full min-w-[1600px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
                 <colgroup>
                   <col style={{ width: activityIdColumnWidth }} />
                   <col style={{ width: activityNameColumnWidth }} />
@@ -855,6 +905,7 @@ export function ProjectSchedulerWorkspace({
                   <col style={{ width: "96px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "150px" }} />
+                  <col style={{ width: "112px" }} />
                   <col style={{ width: "132px" }} />
                   <col style={{ width: "148px" }} />
                   <col style={{ width: "104px" }} />
@@ -903,6 +954,9 @@ export function ProjectSchedulerWorkspace({
                       Successor
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
+                      Cost Code
+                    </th>
+                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Estimated Cost
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
@@ -925,6 +979,15 @@ export function ProjectSchedulerWorkspace({
                     activity.rowKey,
                     "successor"
                   );
+                  const costCodeOption = findCostCodeItemOption(
+                    activity.costCodeItem,
+                    costCodeItemOptions
+                  );
+                  const costCodeDisplay =
+                    costCodeOption?.costCode ??
+                    (activity.costCodeItem && isLoadingCostCodeItems
+                      ? "Loading..."
+                      : "-");
 
                   return (
                     <tr
@@ -1133,6 +1196,22 @@ export function ProjectSchedulerWorkspace({
                           placeholder="A300, A400"
                           className={compactInputClassName}
                         />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <div
+                          className="flex h-8 items-center rounded-lg border border-[var(--border)] bg-[var(--panel-soft)] px-2 text-[11px] font-semibold text-[var(--foreground)]"
+                          title={
+                            activity.costCodeItem
+                              ? `${activity.costCodeItem}${
+                                  costCodeOption
+                                    ? ` (${costCodeOption.costCode})`
+                                    : ""
+                                }`
+                              : "No cost code item selected"
+                          }
+                        >
+                          {costCodeDisplay}
+                        </div>
                       </td>
                       <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <div
@@ -1454,7 +1533,29 @@ export function ProjectSchedulerWorkspace({
               </button>
             </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="mt-6">
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Cost Code Item
+                </span>
+                <SearchableSchedulerCostCodeItemInput
+                  value={resourceCostDraft.costCodeItem}
+                  itemOptions={costCodeItemOptions}
+                  isLoadingItems={isLoadingCostCodeItems}
+                  onChange={(nextValue) =>
+                    handleResourceCostDraftChange("costCodeItem", nextValue)
+                  }
+                />
+              </label>
+              {selectedResourceCostCodeOption ? (
+                <p className="mt-2 text-xs text-[var(--muted)]">
+                  Tagged to {selectedResourceCostCodeOption.item} (
+                  {selectedResourceCostCodeOption.costCode})
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-3">
               <label className="space-y-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
                   Material Cost
@@ -1537,6 +1638,154 @@ export function ProjectSchedulerWorkspace({
               </button>
             </div>
           </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type SearchableSchedulerCostCodeItemInputProps = {
+  value: string;
+  itemOptions: SchedulerCostCodeItemOption[];
+  isLoadingItems: boolean;
+  onChange: (value: string) => void;
+};
+
+function SearchableSchedulerCostCodeItemInput({
+  value,
+  itemOptions,
+  isLoadingItems,
+  onChange,
+}: SearchableSchedulerCostCodeItemInputProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const visibleOptions = useMemo(() => {
+    const normalizedValue = normalizeCostCodeItem(value).toLowerCase();
+    const matches = itemOptions.filter((option) => {
+      if (!normalizedValue) {
+        return true;
+      }
+
+      return (
+        normalizeCostCodeItem(option.item)
+          .toLowerCase()
+          .includes(normalizedValue) ||
+        option.costCode.toLowerCase().includes(normalizedValue)
+      );
+    });
+
+    return matches
+      .sort((left, right) => {
+        const leftItem = normalizeCostCodeItem(left.item).toLowerCase();
+        const rightItem = normalizeCostCodeItem(right.item).toLowerCase();
+        const leftStartsWith = normalizedValue
+          ? leftItem.startsWith(normalizedValue)
+          : false;
+        const rightStartsWith = normalizedValue
+          ? rightItem.startsWith(normalizedValue)
+          : false;
+
+        return (
+          Number(rightStartsWith) - Number(leftStartsWith) ||
+          left.item.localeCompare(right.item) ||
+          left.costCode.localeCompare(right.costCode)
+        );
+      })
+      .slice(0, 8);
+  }, [itemOptions, value]);
+  const activeHighlightedIndex =
+    visibleOptions.length === 0
+      ? 0
+      : Math.min(highlightedIndex, visibleOptions.length - 1);
+
+  function handleSelectItem(option: SchedulerCostCodeItemOption) {
+    onChange(option.item);
+    setIsOpen(false);
+    setHighlightedIndex(0);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        className="h-11 rounded-xl text-sm"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onFocus={() => {
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onBlur={() => {
+          window.setTimeout(() => setIsOpen(false), 120);
+        }}
+        onKeyDown={(event) => {
+          if (visibleOptions.length === 0) {
+            return;
+          }
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((previousIndex) =>
+              Math.min(previousIndex + 1, visibleOptions.length - 1)
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((previousIndex) =>
+              Math.max(previousIndex - 1, 0)
+            );
+            return;
+          }
+
+          if (event.key === "Tab" || event.key === "Enter") {
+            if (isOpen) {
+              event.preventDefault();
+              handleSelectItem(
+                visibleOptions[activeHighlightedIndex] ?? visibleOptions[0]
+              );
+            }
+          }
+        }}
+        placeholder={
+          isLoadingItems
+            ? "Loading cost code items..."
+            : itemOptions.length === 0
+              ? "No cost code items available"
+              : "Type to search cost code items"
+        }
+      />
+
+      {isOpen && !isLoadingItems && visibleOptions.length > 0 ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-[var(--shadow-lg)]">
+          <ul className="max-h-64 divide-y divide-[var(--border)] overflow-y-auto">
+            {visibleOptions.map((option, index) => (
+              <li key={`${option.item}-${option.costCode}`}>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleSelectItem(option)}
+                  className={[
+                    "flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition duration-150",
+                    activeHighlightedIndex === index
+                      ? "bg-[var(--surface)] text-[var(--foreground)]"
+                      : "bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--surface)]",
+                  ].join(" ")}
+                >
+                  <span className="font-medium">{option.item}</span>
+                  <span className="shrink-0 text-[10px] text-[var(--subtle)]">
+                    {option.costCode}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </div>
@@ -2284,6 +2533,28 @@ function getSaveStatusClassName(status: SchedulerSaveStatus) {
   return "border-[var(--border)] bg-[var(--input-bg)]";
 }
 
+function findCostCodeItemOption(
+  value: string,
+  itemOptions: SchedulerCostCodeItemOption[]
+) {
+  const normalizedValue = normalizeCostCodeItem(value).toLowerCase();
+
+  if (!normalizedValue) {
+    return null;
+  }
+
+  return (
+    itemOptions.find(
+      (option) =>
+        normalizeCostCodeItem(option.item).toLowerCase() === normalizedValue
+    ) ?? null
+  );
+}
+
+function normalizeCostCodeItem(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function buildNextActivityId(activities: SchedulerActivity[]) {
   const numericValues = activities
     .map((activity) => {
@@ -2308,6 +2579,7 @@ function buildBlankActivity(
     startDate,
     durationDays: 5,
     percentComplete: 0,
+    costCodeItem: "",
     materialCost: 0,
     labourCost: 0,
     equipmentCost: 0,

@@ -176,6 +176,7 @@ async function upsertActivities(
         activityType === "Task Dependent"
           ? clampPercentComplete(activity.percentComplete)
           : 0,
+      cost_code_item: activity.costCodeItem.trim() || null,
       material_cost: normalizeCost(activity.materialCost),
       labour_cost: normalizeCost(activity.labourCost),
       equipment_cost: normalizeCost(activity.equipmentCost),
