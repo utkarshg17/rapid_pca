@@ -752,6 +752,10 @@ export function ProjectSchedulerWorkspace({
     event: KeyboardEvent<HTMLTableRowElement>,
     rowKey: string
   ) {
+    if (handleVerticalCellNavigation(event)) {
+      return;
+    }
+
     if (
       event.key !== "Insert" ||
       event.altKey ||
@@ -765,6 +769,61 @@ export function ProjectSchedulerWorkspace({
     event.preventDefault();
     event.stopPropagation();
     handleInsertActivityBelow(rowKey);
+  }
+
+  function handleVerticalCellNavigation(
+    event: KeyboardEvent<HTMLTableRowElement>
+  ) {
+    if (
+      (event.key !== "ArrowDown" && event.key !== "ArrowUp") ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    ) {
+      return false;
+    }
+
+    const activeElement = event.target;
+
+    if (!(activeElement instanceof HTMLInputElement)) {
+      return false;
+    }
+
+    const currentCell = activeElement.closest("td");
+    const currentRow = event.currentTarget;
+    const tableBody = currentRow.parentElement;
+
+    if (!currentCell || !tableBody) {
+      return false;
+    }
+
+    const rowOffset = event.key === "ArrowDown" ? 1 : -1;
+    const targetRow = tableBody.children.item(
+      currentRow.sectionRowIndex + rowOffset
+    );
+
+    if (!(targetRow instanceof HTMLTableRowElement)) {
+      return false;
+    }
+
+    const targetCell = targetRow.cells.item(currentCell.cellIndex);
+    const targetControl = targetCell?.querySelector<
+      HTMLInputElement | HTMLSelectElement
+    >("input:not(:disabled), select:not(:disabled)");
+
+    if (!targetControl) {
+      return false;
+    }
+
+    event.preventDefault();
+    targetControl.focus();
+
+    if (targetControl instanceof HTMLInputElement) {
+      targetControl.select();
+    }
+
+    return true;
   }
 
   function handleDeleteActivity(rowKey: string) {
