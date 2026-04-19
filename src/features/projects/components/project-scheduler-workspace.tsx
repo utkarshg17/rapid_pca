@@ -73,8 +73,11 @@ type RelationshipField = "predecessor" | "successor";
 
 type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" | "error";
 
+type SchedulerWorkspaceMode = "schedule" | "report";
+
 type ActivityResourceCostDraft = {
   costCodeItem: string;
+  activityBucket: string;
   estimatedQuantity: string;
   unit: string;
   materialCost: string;
@@ -100,6 +103,36 @@ type GanttVisualBounds = {
   startX: number;
   endX: number;
   isMilestone: boolean;
+};
+
+type SchedulerReportUnitRow = {
+  activityBucket: string;
+  unit: string;
+  estimatedQuantity: number;
+  activityCount: number;
+  materialCost: number;
+  labourCost: number;
+  equipmentCost: number;
+};
+
+type SchedulerReportFloorGroup = {
+  floor: string;
+  unitRows: SchedulerReportUnitRow[];
+  activityCount: number;
+  materialCost: number;
+  labourCost: number;
+  equipmentCost: number;
+};
+
+type SchedulerReportCostCodeGroup = {
+  key: string;
+  costCode: string;
+  item: string;
+  floorGroups: SchedulerReportFloorGroup[];
+  activityCount: number;
+  materialCost: number;
+  labourCost: number;
+  equipmentCost: number;
 };
 
 const dayWidth = 84;
@@ -134,8 +167,20 @@ const schedulerFloorOptions = [
   "Terrace",
 ];
 const schedulerUnitOptions = ["sq.ft", "cu.m", "kg", "LF"];
+const schedulerActivityBucketOptions = [
+  "Shuttering",
+  "Casting",
+  "Rebar",
+  "Flooring",
+  "Brickwork",
+  "Interior Paint",
+  "Exterior Paint",
+  "Electrical Conduiting",
+  "Plumbing Pipe",
+];
 const emptyResourceCostDraft: ActivityResourceCostDraft = {
   costCodeItem: "",
+  activityBucket: "",
   estimatedQuantity: "",
   unit: "",
   materialCost: "",
@@ -146,6 +191,14 @@ const inrCurrencyFormatter = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
   maximumFractionDigits: 0,
+});
+const inrUnitCostFormatter = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  maximumFractionDigits: 2,
+});
+const quantityFormatter = new Intl.NumberFormat("en-IN", {
+  maximumFractionDigits: 3,
 });
 const compactInputClassName = "h-8 rounded-lg px-2 py-1 text-[11px]";
 const compactSelectClassName =
@@ -176,6 +229,8 @@ export function ProjectSchedulerWorkspace({
   const [saveStatusMessage, setSaveStatusMessage] =
     useState("Loading schedule...");
   const [activities, setActivities] = useState<SchedulerActivity[]>([]);
+  const [workspaceMode, setWorkspaceMode] =
+    useState<SchedulerWorkspaceMode>("schedule");
   const [costCodeItemOptions, setCostCodeItemOptions] = useState<
     SchedulerCostCodeItemOption[]
   >([]);
@@ -254,6 +309,14 @@ export function ProjectSchedulerWorkspace({
       ),
     [costCodeItemOptions, resourceCostDraft.costCodeItem]
   );
+  const schedulerReportGroups = useMemo(
+    () =>
+      buildSchedulerReportGroups(
+        computedSchedule.activities,
+        costCodeItemOptions
+      ),
+    [computedSchedule.activities, costCodeItemOptions]
+  );
 
   useEffect(() => {
     scheduleIdRef.current = scheduleId;
@@ -315,6 +378,7 @@ export function ProjectSchedulerWorkspace({
 
         setScheduleId(schedulerData.scheduleId);
         setActivities(schedulerData.activities);
+        setWorkspaceMode("schedule");
         setRelationshipDraftValues({});
         setDateDraftValues({});
         setResourceDialogRowKey(null);
@@ -861,6 +925,7 @@ export function ProjectSchedulerWorkspace({
     setResourceDialogRowKey(activity.rowKey);
     setResourceCostDraft({
       costCodeItem: activity.costCodeItem,
+      activityBucket: activity.activityBucket,
       estimatedQuantity: formatQuantityDraftValue(activity.estimatedQuantity),
       unit: activity.unit,
       materialCost: formatMoneyDraftValue(activity.materialCost),
@@ -892,6 +957,7 @@ export function ProjectSchedulerWorkspace({
     updateActivity(resourceDialogRowKey, (activity) => ({
       ...activity,
       costCodeItem: normalizeCostCodeItem(resourceCostDraft.costCodeItem),
+      activityBucket: normalizeActivityBucket(resourceCostDraft.activityBucket),
       estimatedQuantity: parseQuantityInput(
         resourceCostDraft.estimatedQuantity
       ),
@@ -906,61 +972,80 @@ export function ProjectSchedulerWorkspace({
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 text-[var(--foreground)]">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 shadow-[var(--shadow-lg)]">
-        <Link
-          href={backHref}
-          className="inline-flex h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-3 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
-        >
-          Back
-        </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--input-bg)] p-1">
-            {(["days", "weeks"] as GanttScale[]).map((scaleOption) => {
-              const isActive = ganttScale === scaleOption;
+        {workspaceMode === "report" ? (
+          <button
+            type="button"
+            onClick={() => setWorkspaceMode("schedule")}
+            className="inline-flex h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-3 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+          >
+            Back
+          </button>
+        ) : (
+          <>
+            <Link
+              href={backHref}
+              className="inline-flex h-9 items-center rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-3 text-xs font-medium text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+            >
+              Back
+            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-xl border border-[var(--border)] bg-[var(--input-bg)] p-1">
+                {(["days", "weeks"] as GanttScale[]).map((scaleOption) => {
+                  const isActive = ganttScale === scaleOption;
 
-              return (
-                <button
-                  key={scaleOption}
-                  type="button"
-                  onClick={() => setGanttScale(scaleOption)}
-                  className={[
-                    "h-7 rounded-lg px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition duration-200",
-                    isActive
-                      ? "bg-[var(--inverse-bg)] text-[var(--inverse-fg)]"
-                      : "text-[var(--muted)] hover:cursor-pointer hover:text-[var(--foreground)]",
-                  ].join(" ")}
-                >
-                  {scaleOption}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={handleScheduleActivities}
-            aria-keyshortcuts="F9"
-            title="Schedule activities (F9)"
-            className="h-9 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-xs font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
-          >
-            Schedule
-          </button>
-          <span
-            className={[
-              "inline-flex h-9 items-center rounded-xl border px-3 text-[10px] font-semibold uppercase tracking-[0.08em]",
-              getSaveStatusClassName(saveStatus),
-            ].join(" ")}
-            style={{ color: "var(--status-contrast-text)" }}
-            title={saveStatusMessage}
-          >
-            {saveStatusMessage}
-          </span>
-          <button
-            type="button"
-            onClick={handleAddActivity}
-            className="h-9 rounded-xl bg-green-600 px-4 text-xs font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
-          >
-            Add Activity
-          </button>
-        </div>
+                  return (
+                    <button
+                      key={scaleOption}
+                      type="button"
+                      onClick={() => setGanttScale(scaleOption)}
+                      className={[
+                        "h-7 rounded-lg px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition duration-200",
+                        isActive
+                          ? "bg-[var(--inverse-bg)] text-[var(--inverse-fg)]"
+                          : "text-[var(--muted)] hover:cursor-pointer hover:text-[var(--foreground)]",
+                      ].join(" ")}
+                    >
+                      {scaleOption}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={handleScheduleActivities}
+                aria-keyshortcuts="F9"
+                title="Schedule activities (F9)"
+                className="h-9 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-xs font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+              >
+                Schedule
+              </button>
+              <button
+                type="button"
+                onClick={() => setWorkspaceMode("report")}
+                className="h-9 rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 text-xs font-semibold text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+              >
+                Report
+              </button>
+              <span
+                className={[
+                  "inline-flex h-9 items-center rounded-xl border px-3 text-[10px] font-semibold uppercase tracking-[0.08em]",
+                  getSaveStatusClassName(saveStatus),
+                ].join(" ")}
+                style={{ color: "var(--status-contrast-text)" }}
+                title={saveStatusMessage}
+              >
+                {saveStatusMessage}
+              </span>
+              <button
+                type="button"
+                onClick={handleAddActivity}
+                className="h-9 rounded-xl bg-green-600 px-4 text-xs font-semibold text-white transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-green-500"
+              >
+                Add Activity
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {isLoadingSchedule ? (
@@ -969,6 +1054,8 @@ export function ProjectSchedulerWorkspace({
             Loading schedule...
           </div>
         </Card>
+      ) : workspaceMode === "report" ? (
+        <SchedulerReportView reportGroups={schedulerReportGroups} />
       ) : (
         <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
           <Card className="flex min-h-0 flex-col p-3">
@@ -1661,6 +1748,21 @@ export function ProjectSchedulerWorkspace({
               ) : null}
             </div>
 
+            <div className="mt-5">
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Activity Bucket
+                </span>
+                <SearchableSchedulerActivityBucketInput
+                  value={resourceCostDraft.activityBucket}
+                  bucketOptions={schedulerActivityBucketOptions}
+                  onChange={(nextValue) =>
+                    handleResourceCostDraftChange("activityBucket", nextValue)
+                  }
+                />
+              </label>
+            </div>
+
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
@@ -1790,12 +1892,344 @@ export function ProjectSchedulerWorkspace({
   );
 }
 
+type SchedulerReportViewProps = {
+  reportGroups: SchedulerReportCostCodeGroup[];
+};
+
+function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
+  const totalActivities = reportGroups.reduce(
+    (sum, group) => sum + group.activityCount,
+    0
+  );
+  const totalEstimatedCost = reportGroups.reduce(
+    (sum, group) => sum + getReportGroupEstimatedCost(group),
+    0
+  );
+
+  return (
+    <Card className="min-h-0 flex-1 overflow-hidden p-3">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)]">
+        <div className="border-b border-[var(--border)] bg-[var(--panel-soft)] px-5 py-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--subtle)]">
+            Schedule Report
+          </p>
+          <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                Cost Code and Floor Summary
+              </h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Estimated quantities are grouped by cost code, floor, and unit.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Activities
+                </p>
+                <p className="mt-1 text-lg font-semibold">{totalActivities}</p>
+              </div>
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Estimated Cost
+                </p>
+                <p className="mt-1 text-lg font-semibold">
+                  {formatCurrencyInr(totalEstimatedCost)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {reportGroups.length === 0 ? (
+            <div className="flex h-full min-h-[280px] items-center justify-center rounded-2xl border border-dashed border-[var(--border)] bg-[var(--panel-soft)] p-6 text-center">
+              <div>
+                <p className="text-lg font-semibold">No report data yet</p>
+                <p className="mt-2 max-w-md text-sm leading-6 text-[var(--muted)]">
+                  Add cost code items, floors, activity buckets, estimated
+                  quantities, and units in resource loading to generate this
+                  summary.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reportGroups.map((group) => (
+                <section
+                  key={group.key}
+                  className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--background)]"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--panel-soft)] px-4 py-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--subtle)]">
+                        Cost Code
+                      </p>
+                      <h3 className="mt-1 text-lg font-semibold">
+                        {group.costCode}
+                      </h3>
+                      <p className="mt-1 text-sm text-[var(--muted)]">
+                        {group.item}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <span className="rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1 text-[var(--muted)]">
+                        {group.activityCount} activities
+                      </span>
+                      <span className="rounded-full border border-[var(--border)] bg-[var(--panel)] px-3 py-1 font-semibold text-[var(--foreground)]">
+                        {formatCurrencyInr(getReportGroupEstimatedCost(group))}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-[var(--border)]">
+                    {group.floorGroups.map((floorGroup) => (
+                      <div key={floorGroup.floor} className="p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                              Floor
+                            </p>
+                            <h4 className="mt-1 font-semibold">
+                              {floorGroup.floor}
+                            </h4>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-full bg-[var(--panel-soft)] px-3 py-1 text-[var(--muted)]">
+                              {floorGroup.activityCount} activities
+                            </span>
+                            <span className="rounded-full bg-[var(--panel-soft)] px-3 py-1 font-semibold">
+                              {formatCurrencyInr(
+                                getReportFloorEstimatedCost(floorGroup)
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
+                          <table className="w-full min-w-[980px] border-separate border-spacing-0 text-left text-sm">
+                            <thead className="bg-[var(--panel)]">
+                              <tr>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Activity Bucket
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Unit
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Estimated Quantity
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Activities
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Material
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Labour
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Equipment
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Estimated Cost
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Unit Cost
+                                </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Unit Cost Unit
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {floorGroup.unitRows.map((row) => (
+                                <tr key={row.activityBucket}>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 font-semibold">
+                                    {row.activityBucket}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                                    {row.unit}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                    {formatQuantity(row.estimatedQuantity)}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right text-[var(--muted)]">
+                                    {row.activityCount}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                    {formatCurrencyInr(row.materialCost)}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                    {formatCurrencyInr(row.labourCost)}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                    {formatCurrencyInr(row.equipmentCost)}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                    {formatCurrencyInr(
+                                      getReportUnitEstimatedCost(row)
+                                    )}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                    {formatReportUnitCost(row)}
+                                  </td>
+                                  <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                                    {formatReportUnitCostUnit(row.unit)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 type SearchableSchedulerCostCodeItemInputProps = {
   value: string;
   itemOptions: SchedulerCostCodeItemOption[];
   isLoadingItems: boolean;
   onChange: (value: string) => void;
 };
+
+type SearchableSchedulerActivityBucketInputProps = {
+  value: string;
+  bucketOptions: string[];
+  onChange: (value: string) => void;
+};
+
+function SearchableSchedulerActivityBucketInput({
+  value,
+  bucketOptions,
+  onChange,
+}: SearchableSchedulerActivityBucketInputProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const visibleOptions = useMemo(() => {
+    const normalizedValue = normalizeActivityBucket(value).toLowerCase();
+    const matches = bucketOptions.filter((option) => {
+      if (!normalizedValue) {
+        return true;
+      }
+
+      return option.toLowerCase().includes(normalizedValue);
+    });
+
+    return matches
+      .sort((left, right) => {
+        const leftStartsWith = normalizedValue
+          ? left.toLowerCase().startsWith(normalizedValue)
+          : false;
+        const rightStartsWith = normalizedValue
+          ? right.toLowerCase().startsWith(normalizedValue)
+          : false;
+
+        return (
+          Number(rightStartsWith) - Number(leftStartsWith) ||
+          left.localeCompare(right)
+        );
+      })
+      .slice(0, 8);
+  }, [bucketOptions, value]);
+  const activeHighlightedIndex =
+    visibleOptions.length === 0
+      ? 0
+      : Math.min(highlightedIndex, visibleOptions.length - 1);
+
+  function handleSelectBucket(option: string) {
+    onChange(option);
+    setIsOpen(false);
+    setHighlightedIndex(0);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        className="h-11 rounded-xl text-sm"
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onFocus={() => {
+          setIsOpen(true);
+          setHighlightedIndex(0);
+        }}
+        onBlur={() => {
+          window.setTimeout(() => setIsOpen(false), 120);
+        }}
+        onKeyDown={(event) => {
+          if (visibleOptions.length === 0) {
+            return;
+          }
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((previousIndex) =>
+              Math.min(previousIndex + 1, visibleOptions.length - 1)
+            );
+            return;
+          }
+
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setIsOpen(true);
+            setHighlightedIndex((previousIndex) =>
+              Math.max(previousIndex - 1, 0)
+            );
+            return;
+          }
+
+          if (event.key === "Tab" || event.key === "Enter") {
+            if (isOpen) {
+              event.preventDefault();
+              handleSelectBucket(
+                visibleOptions[activeHighlightedIndex] ?? visibleOptions[0]
+              );
+            }
+          }
+        }}
+        placeholder="Type to search activity buckets"
+      />
+
+      {isOpen && visibleOptions.length > 0 ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.25rem)] z-30 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--panel)] shadow-[var(--shadow-lg)]">
+          <ul className="max-h-64 divide-y divide-[var(--border)] overflow-y-auto">
+            {visibleOptions.map((option, index) => (
+              <li key={option}>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => handleSelectBucket(option)}
+                  className={[
+                    "flex w-full px-3 py-2 text-left text-xs font-medium transition duration-150",
+                    activeHighlightedIndex === index
+                      ? "bg-[var(--surface)] text-[var(--foreground)]"
+                      : "bg-[var(--panel)] text-[var(--foreground)] hover:bg-[var(--surface)]",
+                  ].join(" ")}
+                >
+                  {option}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function SearchableSchedulerCostCodeItemInput({
   value,
@@ -2679,6 +3113,269 @@ function getSaveStatusClassName(status: SchedulerSaveStatus) {
   return "border-[var(--border)] bg-[var(--input-bg)]";
 }
 
+function buildSchedulerReportGroups(
+  activities: ScheduledActivity[],
+  itemOptions: SchedulerCostCodeItemOption[]
+): SchedulerReportCostCodeGroup[] {
+  const groupMap = new Map<
+    string,
+    SchedulerReportCostCodeGroup & {
+      floorGroupMap: Map<
+        string,
+        SchedulerReportFloorGroup & {
+          activityBucketRowMap: Map<string, SchedulerReportUnitRow>;
+        }
+      >;
+    }
+  >();
+
+  activities.forEach((activity) => {
+    if (!shouldIncludeActivityInReport(activity)) {
+      return;
+    }
+
+    const costCodeOption = findCostCodeItemOption(
+      activity.costCodeItem,
+      itemOptions
+    );
+    const normalizedItem = normalizeCostCodeItem(activity.costCodeItem);
+    const costCode = costCodeOption?.costCode ?? "No cost code";
+    const item = costCodeOption?.item ?? (normalizedItem || "Unassigned item");
+    const costGroupKey = costCodeOption
+      ? `cost-code:${costCodeOption.costCode}`
+      : normalizedItem
+        ? `item:${normalizedItem.toLowerCase()}`
+        : "unassigned-cost-code";
+    const floor = activity.floor.trim() || "No floor";
+    const activityBucket =
+      normalizeActivityBucket(activity.activityBucket) || "No activity bucket";
+    const unit = activity.unit.trim() || "No unit";
+
+    let costGroup = groupMap.get(costGroupKey);
+
+    if (!costGroup) {
+      costGroup = {
+        key: costGroupKey,
+        costCode,
+        item,
+        floorGroups: [],
+        floorGroupMap: new Map(),
+        activityCount: 0,
+        materialCost: 0,
+        labourCost: 0,
+        equipmentCost: 0,
+      };
+      groupMap.set(costGroupKey, costGroup);
+    }
+
+    let floorGroup = costGroup.floorGroupMap.get(floor);
+
+    if (!floorGroup) {
+      floorGroup = {
+        floor,
+        unitRows: [],
+        activityBucketRowMap: new Map(),
+        activityCount: 0,
+        materialCost: 0,
+        labourCost: 0,
+        equipmentCost: 0,
+      };
+      costGroup.floorGroupMap.set(floor, floorGroup);
+      costGroup.floorGroups.push(floorGroup);
+    }
+
+    let unitRow = floorGroup.activityBucketRowMap.get(activityBucket);
+
+    if (!unitRow) {
+      unitRow = {
+        activityBucket,
+        unit,
+        estimatedQuantity: 0,
+        activityCount: 0,
+        materialCost: 0,
+        labourCost: 0,
+        equipmentCost: 0,
+      };
+      floorGroup.activityBucketRowMap.set(activityBucket, unitRow);
+      floorGroup.unitRows.push(unitRow);
+    } else {
+      unitRow.unit = mergeReportUnitLabels(unitRow.unit, unit);
+    }
+
+    const estimatedQuantity = activity.estimatedQuantity ?? 0;
+
+    unitRow.estimatedQuantity += estimatedQuantity;
+    unitRow.activityCount += 1;
+    unitRow.materialCost += activity.materialCost;
+    unitRow.labourCost += activity.labourCost;
+    unitRow.equipmentCost += activity.equipmentCost;
+
+    floorGroup.activityCount += 1;
+    floorGroup.materialCost += activity.materialCost;
+    floorGroup.labourCost += activity.labourCost;
+    floorGroup.equipmentCost += activity.equipmentCost;
+
+    costGroup.activityCount += 1;
+    costGroup.materialCost += activity.materialCost;
+    costGroup.labourCost += activity.labourCost;
+    costGroup.equipmentCost += activity.equipmentCost;
+  });
+
+  return Array.from(groupMap.values())
+    .map((group) => ({
+      key: group.key,
+      costCode: group.costCode,
+      item: group.item,
+      activityCount: group.activityCount,
+      materialCost: group.materialCost,
+      labourCost: group.labourCost,
+      equipmentCost: group.equipmentCost,
+      floorGroups: group.floorGroups
+        .map((floorGroup) => ({
+          floor: floorGroup.floor,
+          activityCount: floorGroup.activityCount,
+          materialCost: floorGroup.materialCost,
+          labourCost: floorGroup.labourCost,
+          equipmentCost: floorGroup.equipmentCost,
+          unitRows: floorGroup.unitRows.sort(compareReportUnitRows),
+        }))
+        .sort(compareReportFloorGroups),
+    }))
+    .sort(compareReportCostCodeGroups);
+}
+
+function shouldIncludeActivityInReport(activity: SchedulerActivity) {
+  return Boolean(
+      activity.costCodeItem.trim() ||
+      activity.activityBucket.trim() ||
+      activity.floor.trim() ||
+      activity.unit.trim() ||
+      (activity.estimatedQuantity ?? 0) > 0 ||
+      activity.materialCost > 0 ||
+      activity.labourCost > 0 ||
+      activity.equipmentCost > 0
+  );
+}
+
+function compareReportCostCodeGroups(
+  left: SchedulerReportCostCodeGroup,
+  right: SchedulerReportCostCodeGroup
+) {
+  if (left.costCode === "No cost code" && right.costCode !== "No cost code") {
+    return 1;
+  }
+
+  if (right.costCode === "No cost code" && left.costCode !== "No cost code") {
+    return -1;
+  }
+
+  return (
+    left.costCode.localeCompare(right.costCode) ||
+    left.item.localeCompare(right.item)
+  );
+}
+
+function compareReportFloorGroups(
+  left: SchedulerReportFloorGroup,
+  right: SchedulerReportFloorGroup
+) {
+  return (
+    getReportFloorSortIndex(left.floor) - getReportFloorSortIndex(right.floor) ||
+    left.floor.localeCompare(right.floor)
+  );
+}
+
+function compareReportUnitRows(
+  left: SchedulerReportUnitRow,
+  right: SchedulerReportUnitRow
+) {
+  return (
+    getReportActivityBucketSortIndex(left.activityBucket) -
+      getReportActivityBucketSortIndex(right.activityBucket) ||
+    left.activityBucket.localeCompare(right.activityBucket) ||
+    getReportUnitSortIndex(left.unit) - getReportUnitSortIndex(right.unit) ||
+    left.unit.localeCompare(right.unit)
+  );
+}
+
+function getReportFloorSortIndex(floor: string) {
+  const index = schedulerFloorOptions.indexOf(floor);
+  return index === -1 ? schedulerFloorOptions.length + 1 : index;
+}
+
+function getReportUnitSortIndex(unit: string) {
+  const index = schedulerUnitOptions.indexOf(unit);
+  return index === -1 ? schedulerUnitOptions.length + 1 : index;
+}
+
+function getReportActivityBucketSortIndex(activityBucket: string) {
+  const index = schedulerActivityBucketOptions.indexOf(activityBucket);
+  return index === -1 ? schedulerActivityBucketOptions.length + 1 : index;
+}
+
+function getReportUnitEstimatedCost(row: SchedulerReportUnitRow) {
+  return row.materialCost + row.labourCost + row.equipmentCost;
+}
+
+function getReportUnitCost(row: SchedulerReportUnitRow) {
+  if (row.estimatedQuantity <= 0) {
+    return null;
+  }
+
+  return getReportUnitEstimatedCost(row) / row.estimatedQuantity;
+}
+
+function getReportFloorEstimatedCost(group: SchedulerReportFloorGroup) {
+  return group.materialCost + group.labourCost + group.equipmentCost;
+}
+
+function getReportGroupEstimatedCost(group: SchedulerReportCostCodeGroup) {
+  return group.materialCost + group.labourCost + group.equipmentCost;
+}
+
+function formatQuantity(value: number) {
+  return quantityFormatter.format(value);
+}
+
+function formatReportUnitCost(row: SchedulerReportUnitRow) {
+  const unitCost = getReportUnitCost(row);
+
+  if (unitCost === null) {
+    return "-";
+  }
+
+  return inrUnitCostFormatter.format(unitCost);
+}
+
+function formatReportUnitCostUnit(unit: string) {
+  if (!unit || unit === "No unit") {
+    return "-";
+  }
+
+  return `INR/${unit}`;
+}
+
+function mergeReportUnitLabels(existingUnit: string, nextUnit: string) {
+  if (existingUnit === nextUnit) {
+    return existingUnit;
+  }
+
+  const units = new Set(
+    [...existingUnit.split(", "), ...nextUnit.split(", ")]
+      .map((unit) => unit.trim())
+      .filter(Boolean)
+  );
+
+  return Array.from(units)
+    .sort((left, right) => {
+      return (
+        getReportUnitSortIndex(left) - getReportUnitSortIndex(right) ||
+        left.localeCompare(right)
+      );
+    })
+    .join(", ");
+}
+
 function findCostCodeItemOption(
   value: string,
   itemOptions: SchedulerCostCodeItemOption[]
@@ -2698,6 +3395,10 @@ function findCostCodeItemOption(
 }
 
 function normalizeCostCodeItem(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeActivityBucket(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
@@ -2727,6 +3428,7 @@ function buildBlankActivity(
     percentComplete: 0,
     floor: "",
     costCodeItem: "",
+    activityBucket: "",
     estimatedQuantity: null,
     unit: "",
     materialCost: 0,

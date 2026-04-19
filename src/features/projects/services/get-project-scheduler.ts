@@ -20,6 +20,7 @@ type SchedulerActivityRow = {
   percent_complete: number | null;
   floor: string | null;
   cost_code_item: string | null;
+  activity_bucket: string | null;
   estimated_quantity: number | null;
   unit: string | null;
   material_cost: number | null;
@@ -59,7 +60,7 @@ export async function getProjectScheduler(
   const { data: activityRows, error: activityError } = await supabase
     .from("scheduler_activities")
     .select(
-      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete, floor, cost_code_item, estimated_quantity, unit, material_cost, labour_cost, equipment_cost"
+      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete, floor, cost_code_item, activity_bucket, estimated_quantity, unit, material_cost, labour_cost, equipment_cost"
     )
     .eq("schedule_id", schedule.id)
     .eq("is_active", true)
@@ -141,6 +142,7 @@ export async function getProjectScheduler(
               : 0,
           floor: activity.floor ?? "",
           costCodeItem: activity.cost_code_item ?? "",
+          activityBucket: activity.activity_bucket ?? "",
           estimatedQuantity: normalizeQuantity(activity.estimated_quantity),
           unit: activity.unit ?? "",
           materialCost: normalizeCost(activity.material_cost),

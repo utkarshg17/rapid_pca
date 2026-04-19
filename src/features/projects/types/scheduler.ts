@@ -13,6 +13,7 @@ export type SchedulerActivity = {
   percentComplete: number;
   floor: string;
   costCodeItem: string;
+  activityBucket: string;
   estimatedQuantity: number | null;
   unit: string;
   materialCost: number;

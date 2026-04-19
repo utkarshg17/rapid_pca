@@ -178,6 +178,7 @@ async function upsertActivities(
           : 0,
       floor: activity.floor.trim() || null,
       cost_code_item: activity.costCodeItem.trim() || null,
+      activity_bucket: activity.activityBucket.trim() || null,
       estimated_quantity: normalizeQuantity(activity.estimatedQuantity),
       unit: activity.unit.trim() || null,
       material_cost: normalizeCost(activity.materialCost),
