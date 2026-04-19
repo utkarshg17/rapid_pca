@@ -75,6 +75,8 @@ type SchedulerSaveStatus = "loading" | "idle" | "saving" | "saved" | "blocked" |
 
 type ActivityResourceCostDraft = {
   costCodeItem: string;
+  estimatedQuantity: string;
+  unit: string;
   materialCost: string;
   labourCost: string;
   equipmentCost: string;
@@ -118,8 +120,24 @@ const activityTypes: ActivityType[] = [
   "Start Milestone",
   "Finish Milestone",
 ];
+const schedulerFloorOptions = [
+  "Foundation",
+  "Basement 1",
+  "Basement 2",
+  "Basement 3",
+  "Basement 4",
+  "Basement 5",
+  "Ground Floor",
+  "Stilt",
+  "Podium",
+  ...Array.from({ length: 40 }, (_, index) => String(index + 1)),
+  "Terrace",
+];
+const schedulerUnitOptions = ["sq.ft", "cu.m", "kg", "LF"];
 const emptyResourceCostDraft: ActivityResourceCostDraft = {
   costCodeItem: "",
+  estimatedQuantity: "",
+  unit: "",
   materialCost: "",
   labourCost: "",
   equipmentCost: "",
@@ -784,6 +802,8 @@ export function ProjectSchedulerWorkspace({
     setResourceDialogRowKey(activity.rowKey);
     setResourceCostDraft({
       costCodeItem: activity.costCodeItem,
+      estimatedQuantity: formatQuantityDraftValue(activity.estimatedQuantity),
+      unit: activity.unit,
       materialCost: formatMoneyDraftValue(activity.materialCost),
       labourCost: formatMoneyDraftValue(activity.labourCost),
       equipmentCost: formatMoneyDraftValue(activity.equipmentCost),
@@ -813,6 +833,10 @@ export function ProjectSchedulerWorkspace({
     updateActivity(resourceDialogRowKey, (activity) => ({
       ...activity,
       costCodeItem: normalizeCostCodeItem(resourceCostDraft.costCodeItem),
+      estimatedQuantity: parseQuantityInput(
+        resourceCostDraft.estimatedQuantity
+      ),
+      unit: resourceCostDraft.unit,
       materialCost: parseMoneyInput(resourceCostDraft.materialCost),
       labourCost: parseMoneyInput(resourceCostDraft.labourCost),
       equipmentCost: parseMoneyInput(resourceCostDraft.equipmentCost),
@@ -895,7 +919,7 @@ export function ProjectSchedulerWorkspace({
               onScroll={() => syncPaneScroll("left")}
               className="relative isolate h-full overflow-auto overscroll-contain bg-[var(--panel)]"
             >
-              <table className="w-full min-w-[1600px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+              <table className="w-full min-w-[1712px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
                 <colgroup>
                   <col style={{ width: activityIdColumnWidth }} />
                   <col style={{ width: activityNameColumnWidth }} />
@@ -905,6 +929,7 @@ export function ProjectSchedulerWorkspace({
                   <col style={{ width: "96px" }} />
                   <col style={{ width: "150px" }} />
                   <col style={{ width: "150px" }} />
+                  <col style={{ width: "112px" }} />
                   <col style={{ width: "112px" }} />
                   <col style={{ width: "132px" }} />
                   <col style={{ width: "148px" }} />
@@ -952,6 +977,9 @@ export function ProjectSchedulerWorkspace({
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Successor
+                    </th>
+                    <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
+                      Floor
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Cost Code
@@ -1196,6 +1224,25 @@ export function ProjectSchedulerWorkspace({
                           placeholder="A300, A400"
                           className={compactInputClassName}
                         />
+                      </td>
+                      <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
+                        <select
+                          value={activity.floor}
+                          onChange={(event) =>
+                            updateActivity(activity.rowKey, (currentActivity) => ({
+                              ...currentActivity,
+                              floor: event.target.value,
+                            }))
+                          }
+                          className={compactSelectClassName}
+                        >
+                          <option value="">Select</option>
+                          {schedulerFloorOptions.map((floorOption) => (
+                            <option key={floorOption} value={floorOption}>
+                              {floorOption}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="h-10 border-b border-[var(--border)] px-2 py-0.5 align-middle">
                         <div
@@ -1553,6 +1600,46 @@ export function ProjectSchedulerWorkspace({
                   {selectedResourceCostCodeOption.costCode})
                 </p>
               ) : null}
+            </div>
+
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Estimated Quantity
+                </span>
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={resourceCostDraft.estimatedQuantity}
+                  onChange={(event) =>
+                    handleResourceCostDraftChange(
+                      "estimatedQuantity",
+                      event.target.value
+                    )
+                  }
+                  placeholder="0"
+                  className="h-11 rounded-xl text-sm"
+                />
+              </label>
+              <label className="space-y-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                  Unit
+                </span>
+                <select
+                  value={resourceCostDraft.unit}
+                  onChange={(event) =>
+                    handleResourceCostDraftChange("unit", event.target.value)
+                  }
+                  className="h-11 w-full rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition duration-200 focus:border-[var(--border-strong)]"
+                >
+                  <option value="">Select unit</option>
+                  {schedulerUnitOptions.map((unitOption) => (
+                    <option key={unitOption} value={unitOption}>
+                      {unitOption}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
@@ -2579,7 +2666,10 @@ function buildBlankActivity(
     startDate,
     durationDays: 5,
     percentComplete: 0,
+    floor: "",
     costCodeItem: "",
+    estimatedQuantity: null,
+    unit: "",
     materialCost: 0,
     labourCost: 0,
     equipmentCost: 0,
@@ -2784,11 +2874,31 @@ function formatMoneyDraftValue(value: number) {
   return value > 0 ? String(value) : "";
 }
 
+function formatQuantityDraftValue(value: number | null) {
+  return value !== null && value > 0 ? String(value) : "";
+}
+
 function parseMoneyInput(value: string) {
   const numericValue = Number(value.replace(/,/g, "").trim());
 
   if (!Number.isFinite(numericValue) || numericValue < 0) {
     return 0;
+  }
+
+  return numericValue;
+}
+
+function parseQuantityInput(value: string) {
+  const trimmedValue = value.replace(/,/g, "").trim();
+
+  if (!trimmedValue) {
+    return null;
+  }
+
+  const numericValue = Number(trimmedValue);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return null;
   }
 
   return numericValue;

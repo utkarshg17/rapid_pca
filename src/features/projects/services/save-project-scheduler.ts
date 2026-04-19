@@ -176,7 +176,10 @@ async function upsertActivities(
         activityType === "Task Dependent"
           ? clampPercentComplete(activity.percentComplete)
           : 0,
+      floor: activity.floor.trim() || null,
       cost_code_item: activity.costCodeItem.trim() || null,
+      estimated_quantity: normalizeQuantity(activity.estimatedQuantity),
+      unit: activity.unit.trim() || null,
       material_cost: normalizeCost(activity.materialCost),
       labour_cost: normalizeCost(activity.labourCost),
       equipment_cost: normalizeCost(activity.equipmentCost),
@@ -337,6 +340,20 @@ function normalizeCost(value: string | number) {
 
   if (!Number.isFinite(numericValue) || numericValue < 0) {
     return 0;
+  }
+
+  return numericValue;
+}
+
+function normalizeQuantity(value: string | number | null) {
+  if (value === null) {
+    return null;
+  }
+
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    return null;
   }
 
   return numericValue;

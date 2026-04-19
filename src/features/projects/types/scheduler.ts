@@ -11,7 +11,10 @@ export type SchedulerActivity = {
   startDate: string;
   durationDays: number;
   percentComplete: number;
+  floor: string;
   costCodeItem: string;
+  estimatedQuantity: number | null;
+  unit: string;
   materialCost: number;
   labourCost: number;
   equipmentCost: number;
