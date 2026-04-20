@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import { Card } from "@/components/ui/card";
@@ -138,8 +139,6 @@ type SchedulerReportCostCodeGroup = {
 const dayWidth = 84;
 const weekWidth = 92;
 const rowHeight = 40;
-const activityIdColumnWidth = 120;
-const activityNameColumnWidth = 190;
 const ganttBarInset = 10;
 const ganttArrowWidth = 8;
 const ganttLabelTailWidth = 300;
@@ -203,6 +202,52 @@ const quantityFormatter = new Intl.NumberFormat("en-IN", {
 const compactInputClassName = "h-8 rounded-lg px-2 py-1 text-[11px]";
 const compactSelectClassName =
   "h-8 w-full rounded-lg border border-[var(--border)] bg-[var(--input-bg)] px-2 py-1 text-[11px] text-[var(--foreground)] outline-none transition duration-200 focus:border-[var(--border-strong)]";
+const schedulerTableColumnDefaultWidths = {
+  activityId: 120,
+  activityName: 190,
+  startDate: 128,
+  duration: 74,
+  endDate: 108,
+  percentComplete: 96,
+  predecessor: 150,
+  successor: 150,
+  floor: 112,
+  costCode: 112,
+  estimatedCost: 132,
+  activityType: 148,
+  action: 104,
+};
+type SchedulerTableColumnKey = keyof typeof schedulerTableColumnDefaultWidths;
+const schedulerTableColumnMinWidths: Record<SchedulerTableColumnKey, number> = {
+  activityId: 88,
+  activityName: 150,
+  startDate: 104,
+  duration: 64,
+  endDate: 96,
+  percentComplete: 88,
+  predecessor: 120,
+  successor: 120,
+  floor: 96,
+  costCode: 96,
+  estimatedCost: 116,
+  activityType: 124,
+  action: 92,
+};
+const schedulerTableColumnLabels: Record<SchedulerTableColumnKey, string> = {
+  activityId: "Activity ID",
+  activityName: "Activity",
+  startDate: "Start Date",
+  duration: "Duration",
+  endDate: "End Date",
+  percentComplete: "% Complete",
+  predecessor: "Predecessor",
+  successor: "Successor",
+  floor: "Floor",
+  costCode: "Cost Code",
+  estimatedCost: "Estimated Cost",
+  activityType: "Activity Type",
+  action: "Action",
+};
 
 export function ProjectSchedulerWorkspace({
   project,
@@ -211,6 +256,7 @@ export function ProjectSchedulerWorkspace({
   const leftPaneRef = useRef<HTMLDivElement | null>(null);
   const rightPaneRef = useRef<HTMLDivElement | null>(null);
   const scrollSyncSourceRef = useRef<"left" | "right" | null>(null);
+  const columnResizeCleanupRef = useRef<(() => void) | null>(null);
   const activityNameInputRefs = useRef(new Map<string, HTMLInputElement>());
   const pendingActivityNameFocusRowKeyRef = useRef<string | null>(null);
   const saveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -220,7 +266,7 @@ export function ProjectSchedulerWorkspace({
   const scheduleIdRef = useRef<string | null>(null);
   const [ganttScale, setGanttScale] = useState<GanttScale>("days");
   const [startDateSortMode, setStartDateSortMode] =
-    useState<StartDateSortMode>("normal");
+    useState<StartDateSortMode>("ascending");
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [isLoadingCostCodeItems, setIsLoadingCostCodeItems] = useState(true);
@@ -231,6 +277,9 @@ export function ProjectSchedulerWorkspace({
   const [activities, setActivities] = useState<SchedulerActivity[]>([]);
   const [workspaceMode, setWorkspaceMode] =
     useState<SchedulerWorkspaceMode>("schedule");
+  const [tableColumnWidths, setTableColumnWidths] = useState(
+    schedulerTableColumnDefaultWidths
+  );
   const [costCodeItemOptions, setCostCodeItemOptions] = useState<
     SchedulerCostCodeItemOption[]
   >([]);
@@ -317,10 +366,25 @@ export function ProjectSchedulerWorkspace({
       ),
     [computedSchedule.activities, costCodeItemOptions]
   );
+  const tableMinWidth = useMemo(
+    () =>
+      Object.values(tableColumnWidths).reduce(
+        (totalWidth, columnWidth) => totalWidth + columnWidth,
+        0
+      ),
+    [tableColumnWidths]
+  );
+  const activityIdColumnWidth = tableColumnWidths.activityId;
 
   useEffect(() => {
     scheduleIdRef.current = scheduleId;
   }, [scheduleId]);
+
+  useEffect(() => {
+    return () => {
+      columnResizeCleanupRef.current?.();
+    };
+  }, []);
 
   useEffect(() => {
     let isCancelled = false;
@@ -969,6 +1033,64 @@ export function ProjectSchedulerWorkspace({
     handleCloseResourceDialog();
   }
 
+  function handleColumnResizeStart(
+    columnKey: SchedulerTableColumnKey,
+    event: ReactMouseEvent<HTMLButtonElement>
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    columnResizeCleanupRef.current?.();
+
+    const startX = event.clientX;
+    const startWidth = tableColumnWidths[columnKey];
+
+    function handleMouseMove(mouseEvent: globalThis.MouseEvent) {
+      mouseEvent.preventDefault();
+
+      const nextWidth = Math.max(
+        schedulerTableColumnMinWidths[columnKey],
+        Math.round(startWidth + mouseEvent.clientX - startX)
+      );
+
+      setTableColumnWidths((currentWidths) => {
+        if (currentWidths[columnKey] === nextWidth) {
+          return currentWidths;
+        }
+
+        return {
+          ...currentWidths,
+          [columnKey]: nextWidth,
+        };
+      });
+    }
+
+    function handleMouseUp() {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      columnResizeCleanupRef.current = null;
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    columnResizeCleanupRef.current = handleMouseUp;
+  }
+
+  function renderColumnResizeHandle(columnKey: SchedulerTableColumnKey) {
+    const label = schedulerTableColumnLabels[columnKey];
+
+    return (
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={`Resize ${label} column`}
+        title={`Drag to resize ${label}`}
+        onMouseDown={(event) => handleColumnResizeStart(columnKey, event)}
+        className="absolute right-0 top-0 z-[60] h-full w-2 translate-x-1/2 cursor-col-resize touch-none bg-transparent transition duration-150 hover:bg-[var(--border-strong)] focus-visible:bg-[var(--border-strong)]"
+      />
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 text-[var(--foreground)]">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel)] px-3 py-2 shadow-[var(--shadow-lg)]">
@@ -1065,21 +1187,24 @@ export function ProjectSchedulerWorkspace({
               onScroll={() => syncPaneScroll("left")}
               className="relative isolate h-full overflow-auto overscroll-contain bg-[var(--panel)]"
             >
-              <table className="w-full min-w-[1712px] table-fixed border-separate border-spacing-0 text-left text-[11px]">
+              <table
+                className="w-full table-fixed border-separate border-spacing-0 text-left text-[11px]"
+                style={{ minWidth: tableMinWidth }}
+              >
                 <colgroup>
-                  <col style={{ width: activityIdColumnWidth }} />
-                  <col style={{ width: activityNameColumnWidth }} />
-                  <col style={{ width: "128px" }} />
-                  <col style={{ width: "74px" }} />
-                  <col style={{ width: "108px" }} />
-                  <col style={{ width: "96px" }} />
-                  <col style={{ width: "150px" }} />
-                  <col style={{ width: "150px" }} />
-                  <col style={{ width: "112px" }} />
-                  <col style={{ width: "112px" }} />
-                  <col style={{ width: "132px" }} />
-                  <col style={{ width: "148px" }} />
-                  <col style={{ width: "104px" }} />
+                  <col style={{ width: tableColumnWidths.activityId }} />
+                  <col style={{ width: tableColumnWidths.activityName }} />
+                  <col style={{ width: tableColumnWidths.startDate }} />
+                  <col style={{ width: tableColumnWidths.duration }} />
+                  <col style={{ width: tableColumnWidths.endDate }} />
+                  <col style={{ width: tableColumnWidths.percentComplete }} />
+                  <col style={{ width: tableColumnWidths.predecessor }} />
+                  <col style={{ width: tableColumnWidths.successor }} />
+                  <col style={{ width: tableColumnWidths.floor }} />
+                  <col style={{ width: tableColumnWidths.costCode }} />
+                  <col style={{ width: tableColumnWidths.estimatedCost }} />
+                  <col style={{ width: tableColumnWidths.activityType }} />
+                  <col style={{ width: tableColumnWidths.action }} />
                 </colgroup>
                 <thead className="bg-[var(--panel)]">
                   <tr>
@@ -1088,12 +1213,14 @@ export function ProjectSchedulerWorkspace({
                       style={{ left: 0 }}
                     >
                       Activity ID
+                      {renderColumnResizeHandle("activityId")}
                     </th>
                     <th
                       className="sticky top-0 z-50 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[1px_0_0_0_var(--border),0_1px_0_0_var(--border)]"
                       style={{ left: activityIdColumnWidth }}
                     >
                       Activity
+                      {renderColumnResizeHandle("activityName")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       <button
@@ -1108,36 +1235,47 @@ export function ProjectSchedulerWorkspace({
                           {getStartDateSortIndicator(startDateSortMode)}
                         </span>
                       </button>
+                      {renderColumnResizeHandle("startDate")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Duration
+                      {renderColumnResizeHandle("duration")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       End Date
+                      {renderColumnResizeHandle("endDate")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       % Complete
+                      {renderColumnResizeHandle("percentComplete")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Predecessor
+                      {renderColumnResizeHandle("predecessor")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Successor
+                      {renderColumnResizeHandle("successor")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Floor
+                      {renderColumnResizeHandle("floor")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Cost Code
+                      {renderColumnResizeHandle("costCode")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Estimated Cost
+                      {renderColumnResizeHandle("estimatedCost")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Activity Type
+                      {renderColumnResizeHandle("activityType")}
                     </th>
                     <th className="sticky top-0 z-40 h-10 border-b border-[var(--border)] bg-[var(--panel)] px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)] shadow-[0_1px_0_0_var(--border)]">
                       Action
+                      {renderColumnResizeHandle("action")}
                     </th>
                   </tr>
                 </thead>
