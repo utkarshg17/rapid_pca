@@ -136,6 +136,11 @@ type SchedulerReportCostCodeGroup = {
   equipmentCost: number;
 };
 
+type SchedulerGanttColorOption = {
+  name: string;
+  value: string;
+};
+
 const dayWidth = 84;
 const weekWidth = 92;
 const rowHeight = 40;
@@ -177,6 +182,24 @@ const schedulerActivityBucketOptions = [
   "Electrical Conduiting",
   "Plumbing Pipe",
 ];
+const schedulerGanttColorOptions: SchedulerGanttColorOption[] = [
+  { name: "Coral", value: "#fb7185" },
+  { name: "Rose", value: "#fda4af" },
+  { name: "Salmon", value: "#fca5a5" },
+  { name: "Peach", value: "#fdba74" },
+  { name: "Apricot", value: "#fed7aa" },
+  { name: "Amber", value: "#fbbf24" },
+  { name: "Sunshine", value: "#fde047" },
+  { name: "Lemon", value: "#fef08a" },
+  { name: "Lavender", value: "#c4b5fd" },
+  { name: "Lilac", value: "#d8b4fe" },
+  { name: "Fuchsia", value: "#f0abfc" },
+  { name: "Pink", value: "#f9a8d4" },
+  { name: "Powder Blue", value: "#bfdbfe" },
+  { name: "Periwinkle", value: "#93c5fd" },
+  { name: "Sky", value: "#7dd3fc" },
+  { name: "Cyan", value: "#67e8f9" },
+];
 const emptyResourceCostDraft: ActivityResourceCostDraft = {
   costCodeItem: "",
   activityBucket: "",
@@ -215,7 +238,7 @@ const schedulerTableColumnDefaultWidths = {
   costCode: 112,
   estimatedCost: 132,
   activityType: 148,
-  action: 104,
+  action: 150,
 };
 type SchedulerTableColumnKey = keyof typeof schedulerTableColumnDefaultWidths;
 const schedulerTableColumnMinWidths: Record<SchedulerTableColumnKey, number> = {
@@ -231,7 +254,7 @@ const schedulerTableColumnMinWidths: Record<SchedulerTableColumnKey, number> = {
   costCode: 96,
   estimatedCost: 116,
   activityType: 124,
-  action: 92,
+  action: 136,
 };
 const schedulerTableColumnLabels: Record<SchedulerTableColumnKey, string> = {
   activityId: "Activity ID",
@@ -277,6 +300,9 @@ export function ProjectSchedulerWorkspace({
   const [activities, setActivities] = useState<SchedulerActivity[]>([]);
   const [workspaceMode, setWorkspaceMode] =
     useState<SchedulerWorkspaceMode>("schedule");
+  const [ganttColorByRowKey, setGanttColorByRowKey] = useState<
+    Record<string, string>
+  >({});
   const [tableColumnWidths, setTableColumnWidths] = useState(
     schedulerTableColumnDefaultWidths
   );
@@ -443,6 +469,7 @@ export function ProjectSchedulerWorkspace({
         setScheduleId(schedulerData.scheduleId);
         setActivities(schedulerData.activities);
         setWorkspaceMode("schedule");
+        setGanttColorByRowKey({});
         setRelationshipDraftValues({});
         setDateDraftValues({});
         setResourceDialogRowKey(null);
@@ -976,6 +1003,30 @@ export function ProjectSchedulerWorkspace({
               )
             : activity.predecessorIds,
         }));
+    });
+
+    setGanttColorByRowKey((currentColors) => {
+      if (!currentColors[rowKey]) {
+        return currentColors;
+      }
+
+      const nextColors = { ...currentColors };
+      delete nextColors[rowKey];
+      return nextColors;
+    });
+  }
+
+  function handleGanttColorChange(rowKey: string, nextColor: string) {
+    setGanttColorByRowKey((currentColors) => {
+      const nextColors = { ...currentColors };
+
+      if (nextColor) {
+        nextColors[rowKey] = nextColor;
+      } else {
+        delete nextColors[rowKey];
+      }
+
+      return nextColors;
     });
   }
 
@@ -1585,6 +1636,12 @@ export function ProjectSchedulerWorkspace({
                           >
                             <UserPlusIcon />
                           </button>
+                          <GanttColorPicker
+                            selectedColor={ganttColorByRowKey[activity.rowKey] ?? ""}
+                            onChange={(nextColor) =>
+                              handleGanttColorChange(activity.rowKey, nextColor)
+                            }
+                          />
                           <button
                             type="button"
                             onClick={() => handleDeleteActivity(activity.rowKey)}
@@ -1744,6 +1801,8 @@ export function ProjectSchedulerWorkspace({
                   const completionPercent = isMilestone
                     ? 0
                     : clampPercentComplete(activity.percentComplete);
+                  const customGanttColor =
+                    ganttColorByRowKey[activity.rowKey] ?? "";
 
                   return (
                     <div
@@ -1778,7 +1837,17 @@ export function ProjectSchedulerWorkspace({
                             }}
                             title={`${activity.activityType} - ${activityLabel} - ${formatDisplayDate(activity.computedStartDate)}`}
                           >
-                            <span className="h-3.5 w-3.5 rotate-45 bg-black shadow ring-1 ring-white/70" />
+                            <span
+                              className={[
+                                "h-3.5 w-3.5 rotate-45 shadow ring-1 ring-white/70",
+                                customGanttColor ? "" : "bg-black",
+                              ].join(" ")}
+                              style={
+                                customGanttColor
+                                  ? { backgroundColor: customGanttColor }
+                                  : undefined
+                              }
+                            />
                             <span className="whitespace-nowrap rounded-full bg-[var(--panel)] px-2 py-1 text-[10px] font-semibold text-[var(--foreground)] shadow-sm">
                               {activityLabel}
                             </span>
@@ -1794,17 +1863,28 @@ export function ProjectSchedulerWorkspace({
                             <span
                               className={[
                                 "relative h-5 overflow-hidden rounded-lg shadow",
-                                activity.hasCircularDependency
-                                  ? "bg-amber-500"
-                                  : activity.unresolvedPredecessors.length > 0
-                                    ? "bg-slate-500"
-                                    : "bg-emerald-600",
+                                customGanttColor
+                                  ? ""
+                                  : activity.hasCircularDependency
+                                    ? "bg-amber-500"
+                                    : activity.unresolvedPredecessors.length > 0
+                                      ? "bg-slate-500"
+                                      : "bg-emerald-600",
                               ].join(" ")}
-                              style={{ width: visualBarWidth }}
+                              style={{
+                                width: visualBarWidth,
+                                ...(customGanttColor
+                                  ? { backgroundColor: customGanttColor }
+                                  : {}),
+                              }}
                             >
                               {completionPercent > 0 ? (
                                 <span
-                                  className="absolute inset-y-0 left-0 bg-blue-500"
+                                  className={
+                                    customGanttColor
+                                      ? "absolute inset-y-0 left-0 bg-black/15"
+                                      : "absolute inset-y-0 left-0 bg-blue-500"
+                                  }
                                   style={{ width: `${completionPercent}%` }}
                                 />
                               ) : null}
@@ -2504,6 +2584,84 @@ function SearchableSchedulerCostCodeItemInput({
               </li>
             ))}
           </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type GanttColorPickerProps = {
+  selectedColor: string;
+  onChange: (nextColor: string) => void;
+};
+
+function GanttColorPicker({ selectedColor, onChange }: GanttColorPickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedOption = schedulerGanttColorOptions.find(
+    (option) => option.value === selectedColor
+  );
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setIsOpen((currentValue) => !currentValue)}
+        aria-label="Choose Gantt bar color"
+        title={
+          selectedOption
+            ? `Gantt color: ${selectedOption.name}`
+            : "Choose Gantt bar color"
+        }
+        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--input-bg)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:border-[var(--border-strong)]"
+      >
+        <span
+          className="h-4 w-4 rounded-full border border-black/10 shadow-sm"
+          style={{
+            backgroundColor: selectedColor || "var(--surface-strong)",
+          }}
+        />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute right-0 top-[calc(100%+0.35rem)] z-50 w-44 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-3 shadow-[var(--shadow-lg)]">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+            Gantt Color
+          </p>
+          <div className="grid grid-cols-4 gap-2">
+            {schedulerGanttColorOptions.map((option) => {
+              const isSelected = option.value === selectedColor;
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setIsOpen(false);
+                  }}
+                  aria-label={`Use ${option.name}`}
+                  title={option.name}
+                  className={[
+                    "h-7 rounded-lg border transition duration-150 hover:scale-110 hover:cursor-pointer",
+                    isSelected
+                      ? "border-[var(--foreground)] ring-2 ring-[var(--foreground)]/25"
+                      : "border-black/10 hover:border-[var(--foreground)]/60",
+                  ].join(" ")}
+                  style={{ backgroundColor: option.value }}
+                />
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              setIsOpen(false);
+            }}
+            className="mt-3 w-full rounded-xl border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-[var(--muted)] transition duration-200 hover:cursor-pointer hover:border-[var(--border-strong)] hover:text-[var(--foreground)]"
+          >
+            Default Color
+          </button>
         </div>
       ) : null}
     </div>
@@ -3648,11 +3806,20 @@ function buildRelationshipDraftKey(rowKey: string, field: RelationshipField) {
 }
 
 function parseDateValue(value: string) {
-  if (!value) {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
     return null;
   }
 
-  const date = new Date(`${value}T00:00:00`);
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedValue);
+
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return buildDateFromParts(day, month, year);
+  }
+
+  const date = new Date(trimmedValue);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -3694,6 +3861,16 @@ function buildInputDateFromParts(
   monthValue: string,
   yearValue: string
 ) {
+  const date = buildDateFromParts(dayValue, monthValue, yearValue);
+
+  return date ? toInputDate(date) : null;
+}
+
+function buildDateFromParts(
+  dayValue: string,
+  monthValue: string,
+  yearValue: string
+) {
   const day = Number(dayValue);
   const month = Number(monthValue);
   const year = Number(yearValue);
@@ -3716,7 +3893,7 @@ function buildInputDateFromParts(
     return null;
   }
 
-  return toInputDate(date);
+  return date;
 }
 
 function addDays(date: Date, days: number) {
@@ -3744,7 +3921,11 @@ function maxDate(dates: Date[]) {
 }
 
 function toInputDate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
 }
 
 function addDaysToInputDate(value: string, days: number) {
