@@ -1872,11 +1872,7 @@ export function ProjectSchedulerWorkspace({
                             >
                               {completionPercent > 0 ? (
                                 <span
-                                  className={
-                                    customGanttColor
-                                      ? "absolute inset-y-0 left-0 bg-black/15"
-                                      : "absolute inset-y-0 left-0 bg-blue-500"
-                                  }
+                                  className="absolute inset-y-0 left-0 bg-blue-500"
                                   style={{ width: `${completionPercent}%` }}
                                 />
                               ) : null}
