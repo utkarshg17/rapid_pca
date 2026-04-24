@@ -26,6 +26,7 @@ type SchedulerActivityRow = {
   material_cost: number | null;
   labour_cost: number | null;
   equipment_cost: number | null;
+  gantt_color: string | null;
 };
 
 type SchedulerRelationshipRow = {
@@ -60,7 +61,7 @@ export async function getProjectScheduler(
   const { data: activityRows, error: activityError } = await supabase
     .from("scheduler_activities")
     .select(
-      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete, floor, cost_code_item, activity_bucket, estimated_quantity, unit, material_cost, labour_cost, equipment_cost"
+      "id, row_order, activity_id, activity_name, activity_type, start_date, duration_days, percent_complete, floor, cost_code_item, activity_bucket, estimated_quantity, unit, material_cost, labour_cost, equipment_cost, gantt_color"
     )
     .eq("schedule_id", schedule.id)
     .eq("is_active", true)
@@ -148,6 +149,7 @@ export async function getProjectScheduler(
           materialCost: normalizeCost(activity.material_cost),
           labourCost: normalizeCost(activity.labour_cost),
           equipmentCost: normalizeCost(activity.equipment_cost),
+          ganttColor: activity.gantt_color ?? "",
           predecessorIds:
             predecessorIdsBySuccessorRowId.get(activity.id)?.map((id) =>
               id.trim().toUpperCase()

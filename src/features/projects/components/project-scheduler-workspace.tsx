@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -107,10 +108,23 @@ type GanttVisualBounds = {
 };
 
 type SchedulerReportUnitRow = {
+  key: string;
   activityBucket: string;
   unit: string;
   estimatedQuantity: number;
   activityCount: number;
+  materialCost: number;
+  labourCost: number;
+  equipmentCost: number;
+  activities: SchedulerReportActivityRow[];
+};
+
+type SchedulerReportActivityRow = {
+  key: string;
+  activityId: string;
+  activityName: string;
+  estimatedQuantity: number | null;
+  unit: string;
   materialCost: number;
   labourCost: number;
   equipmentCost: number;
@@ -183,22 +197,22 @@ const schedulerActivityBucketOptions = [
   "Plumbing Pipe",
 ];
 const schedulerGanttColorOptions: SchedulerGanttColorOption[] = [
-  { name: "Coral", value: "#fb7185" },
-  { name: "Rose", value: "#fda4af" },
-  { name: "Salmon", value: "#fca5a5" },
-  { name: "Peach", value: "#fdba74" },
-  { name: "Apricot", value: "#fed7aa" },
-  { name: "Amber", value: "#fbbf24" },
-  { name: "Sunshine", value: "#fde047" },
-  { name: "Lemon", value: "#fef08a" },
-  { name: "Lavender", value: "#c4b5fd" },
-  { name: "Lilac", value: "#d8b4fe" },
-  { name: "Fuchsia", value: "#f0abfc" },
-  { name: "Pink", value: "#f9a8d4" },
-  { name: "Powder Blue", value: "#bfdbfe" },
-  { name: "Periwinkle", value: "#93c5fd" },
-  { name: "Sky", value: "#7dd3fc" },
-  { name: "Cyan", value: "#67e8f9" },
+  { name: "#ea7286", value: "#ea7286" },
+  { name: "#eab281", value: "#eab281" },
+  { name: "#e3e19f", value: "#e3e19f" },
+  { name: "#a9c484", value: "#a9c484" },
+  { name: "#5d937b", value: "#5d937b" },
+  { name: "#58525a", value: "#58525a" },
+  { name: "#a07ca7", value: "#a07ca7" },
+  { name: "#f4a4bf", value: "#f4a4bf" },
+  { name: "#f5d1b6", value: "#f5d1b6" },
+  { name: "#eeede3", value: "#eeede3" },
+  { name: "#d6cec2", value: "#d6cec2" },
+  { name: "#a2a6a9", value: "#a2a6a9" },
+  { name: "#777f8f", value: "#777f8f" },
+  { name: "#a3b2d2", value: "#a3b2d2" },
+  { name: "#bfded8", value: "#bfded8" },
+  { name: "#bf796d", value: "#bf796d" },
 ];
 const emptyResourceCostDraft: ActivityResourceCostDraft = {
   costCodeItem: "",
@@ -300,9 +314,6 @@ export function ProjectSchedulerWorkspace({
   const [activities, setActivities] = useState<SchedulerActivity[]>([]);
   const [workspaceMode, setWorkspaceMode] =
     useState<SchedulerWorkspaceMode>("schedule");
-  const [ganttColorByRowKey, setGanttColorByRowKey] = useState<
-    Record<string, string>
-  >({});
   const [tableColumnWidths, setTableColumnWidths] = useState(
     schedulerTableColumnDefaultWidths
   );
@@ -469,7 +480,6 @@ export function ProjectSchedulerWorkspace({
         setScheduleId(schedulerData.scheduleId);
         setActivities(schedulerData.activities);
         setWorkspaceMode("schedule");
-        setGanttColorByRowKey({});
         setRelationshipDraftValues({});
         setDateDraftValues({});
         setResourceDialogRowKey(null);
@@ -1004,30 +1014,13 @@ export function ProjectSchedulerWorkspace({
             : activity.predecessorIds,
         }));
     });
-
-    setGanttColorByRowKey((currentColors) => {
-      if (!currentColors[rowKey]) {
-        return currentColors;
-      }
-
-      const nextColors = { ...currentColors };
-      delete nextColors[rowKey];
-      return nextColors;
-    });
   }
 
   function handleGanttColorChange(rowKey: string, nextColor: string) {
-    setGanttColorByRowKey((currentColors) => {
-      const nextColors = { ...currentColors };
-
-      if (nextColor) {
-        nextColors[rowKey] = nextColor;
-      } else {
-        delete nextColors[rowKey];
-      }
-
-      return nextColors;
-    });
+    updateActivity(rowKey, (activity) => ({
+      ...activity,
+      ganttColor: nextColor,
+    }));
   }
 
   function getActivityEstimatedCost(activity: SchedulerActivity) {
@@ -1637,7 +1630,7 @@ export function ProjectSchedulerWorkspace({
                             <UserPlusIcon />
                           </button>
                           <GanttColorPicker
-                            selectedColor={ganttColorByRowKey[activity.rowKey] ?? ""}
+                            selectedColor={activity.ganttColor}
                             onChange={(nextColor) =>
                               handleGanttColorChange(activity.rowKey, nextColor)
                             }
@@ -1801,8 +1794,7 @@ export function ProjectSchedulerWorkspace({
                   const completionPercent = isMilestone
                     ? 0
                     : clampPercentComplete(activity.percentComplete);
-                  const customGanttColor =
-                    ganttColorByRowKey[activity.rowKey] ?? "";
+                  const customGanttColor = activity.ganttColor;
 
                   return (
                     <div
@@ -2115,6 +2107,7 @@ type SchedulerReportViewProps = {
 };
 
 function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
+  const [expandedRowKeys, setExpandedRowKeys] = useState<string[]>([]);
   const totalActivities = reportGroups.reduce(
     (sum, group) => sum + group.activityCount,
     0
@@ -2123,6 +2116,14 @@ function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
     (sum, group) => sum + getReportGroupEstimatedCost(group),
     0
   );
+
+  function handleToggleActivityDetails(rowKey: string) {
+    setExpandedRowKeys((currentKeys) =>
+      currentKeys.includes(rowKey)
+        ? currentKeys.filter((key) => key !== rowKey)
+        : [...currentKeys, rowKey]
+    );
+  }
 
   return (
     <Card className="min-h-0 flex-1 overflow-hidden p-3">
@@ -2137,7 +2138,8 @@ function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
                 Cost Code and Floor Summary
               </h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                Estimated quantities are grouped by cost code, floor, and unit.
+                Estimated quantities are grouped by cost code, floor, and
+                activity bucket.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -2225,7 +2227,7 @@ function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
                         </div>
 
                         <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
-                          <table className="w-full min-w-[980px] border-separate border-spacing-0 text-left text-sm">
+                          <table className="w-full min-w-[1120px] border-separate border-spacing-0 text-left text-sm">
                             <thead className="bg-[var(--panel)]">
                               <tr>
                                 <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
@@ -2258,45 +2260,181 @@ function SchedulerReportView({ reportGroups }: SchedulerReportViewProps) {
                                 <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
                                   Unit Cost Unit
                                 </th>
+                                <th className="border-b border-[var(--border)] px-3 py-2 text-center text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                  Action
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
-                              {floorGroup.unitRows.map((row) => (
-                                <tr key={row.activityBucket}>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 font-semibold">
-                                    {row.activityBucket}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
-                                    {row.unit}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
-                                    {formatQuantity(row.estimatedQuantity)}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right text-[var(--muted)]">
-                                    {row.activityCount}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
-                                    {formatCurrencyInr(row.materialCost)}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
-                                    {formatCurrencyInr(row.labourCost)}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right">
-                                    {formatCurrencyInr(row.equipmentCost)}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
-                                    {formatCurrencyInr(
-                                      getReportUnitEstimatedCost(row)
-                                    )}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
-                                    {formatReportUnitCost(row)}
-                                  </td>
-                                  <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
-                                    {formatReportUnitCostUnit(row.unit)}
-                                  </td>
-                                </tr>
-                              ))}
+                              {floorGroup.unitRows.map((row) => {
+                                const isExpanded = expandedRowKeys.includes(
+                                  row.key
+                                );
+
+                                return (
+                                  <Fragment key={row.key}>
+                                    <tr>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 font-semibold">
+                                        {row.activityBucket}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                                        {row.unit}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                        {formatQuantity(row.estimatedQuantity)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right text-[var(--muted)]">
+                                        {row.activityCount}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                        {formatCurrencyInr(row.materialCost)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                        {formatCurrencyInr(row.labourCost)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                        {formatCurrencyInr(row.equipmentCost)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                        {formatCurrencyInr(
+                                          getReportUnitEstimatedCost(row)
+                                        )}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                        {formatReportUnitCost(row)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                                        {formatReportUnitCostUnit(row.unit)}
+                                      </td>
+                                      <td className="border-b border-[var(--border)] px-3 py-2 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleToggleActivityDetails(row.key)
+                                          }
+                                          aria-label={`${
+                                            isExpanded ? "Collapse" : "Expand"
+                                          } activities for ${row.activityBucket}`}
+                                          title={
+                                            isExpanded
+                                              ? "Collapse activities"
+                                              : "View activities"
+                                          }
+                                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] transition duration-200 hover:scale-105 hover:cursor-pointer hover:bg-[var(--surface-strong)]"
+                                        >
+                                          <ExpandIcon />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    {isExpanded ? (
+                                      <tr>
+                                        <td
+                                          colSpan={11}
+                                          className="border-b border-[var(--border)] bg-[var(--panel-soft)]/60 px-3 py-3"
+                                        >
+                                          <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)]">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
+                                              <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                  Activities In Bucket
+                                                </p>
+                                                <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">
+                                                  {row.activityBucket}
+                                                </p>
+                                              </div>
+                                              <span className="rounded-full border border-[var(--border)] bg-[var(--panel-soft)] px-3 py-1 text-[11px] text-[var(--muted)]">
+                                                {row.activities.length} linked
+                                                activities
+                                              </span>
+                                            </div>
+                                            <div className="overflow-x-auto">
+                                              <table className="w-full min-w-[940px] border-separate border-spacing-0 text-left text-sm">
+                                                <thead className="bg-[var(--panel-soft)]">
+                                                  <tr>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Activity ID
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Activity
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Estimated Quantity
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Unit
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Material Cost
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Labour Cost
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Equipment Cost
+                                                    </th>
+                                                    <th className="border-b border-[var(--border)] px-3 py-2 text-right text-[10px] uppercase tracking-[0.14em] text-[var(--subtle)]">
+                                                      Total Cost
+                                                    </th>
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {row.activities.map(
+                                                    (activity) => (
+                                                      <tr key={activity.key}>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 font-semibold text-[var(--foreground)]">
+                                                          {activity.activityId ||
+                                                            "-"}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2">
+                                                          {activity.activityName ||
+                                                            "Untitled activity"}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                                          {activity.estimatedQuantity ===
+                                                          null
+                                                            ? "-"
+                                                            : formatQuantity(
+                                                                activity.estimatedQuantity
+                                                              )}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-[var(--muted)]">
+                                                          {activity.unit || "-"}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                                          {formatCurrencyInr(
+                                                            activity.materialCost
+                                                          )}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                                          {formatCurrencyInr(
+                                                            activity.labourCost
+                                                          )}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-right">
+                                                          {formatCurrencyInr(
+                                                            activity.equipmentCost
+                                                          )}
+                                                        </td>
+                                                        <td className="border-b border-[var(--border)] px-3 py-2 text-right font-semibold">
+                                                          {formatCurrencyInr(
+                                                            getReportActivityEstimatedCost(
+                                                              activity
+                                                            )
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    )
+                                                  )}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ) : null}
+                                  </Fragment>
+                                );
+                              })}
                             </tbody>
                           </table>
                         </div>
@@ -2684,6 +2822,25 @@ function UserPlusIcon() {
       <path d="M3.5 21a6.5 6.5 0 0 1 13 0" />
       <path d="M18 8v6" />
       <path d="M15 11h6" />
+    </svg>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      className="h-4 w-4"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5M9 4 4 9M15 4l5 5M9 20l-5-5M15 20l5-5"
+      />
     </svg>
   );
 }
@@ -3484,6 +3641,7 @@ function buildSchedulerReportGroups(
 
     if (!unitRow) {
       unitRow = {
+        key: `${costGroupKey}:${floor}:${activityBucket}`,
         activityBucket,
         unit,
         estimatedQuantity: 0,
@@ -3491,6 +3649,7 @@ function buildSchedulerReportGroups(
         materialCost: 0,
         labourCost: 0,
         equipmentCost: 0,
+        activities: [],
       };
       floorGroup.activityBucketRowMap.set(activityBucket, unitRow);
       floorGroup.unitRows.push(unitRow);
@@ -3505,6 +3664,16 @@ function buildSchedulerReportGroups(
     unitRow.materialCost += activity.materialCost;
     unitRow.labourCost += activity.labourCost;
     unitRow.equipmentCost += activity.equipmentCost;
+    unitRow.activities.push({
+      key: activity.rowKey,
+      activityId: activity.activityId.trim(),
+      activityName: activity.activityName.trim(),
+      estimatedQuantity: activity.estimatedQuantity,
+      unit: activity.unit.trim(),
+      materialCost: activity.materialCost,
+      labourCost: activity.labourCost,
+      equipmentCost: activity.equipmentCost,
+    });
 
     floorGroup.activityCount += 1;
     floorGroup.materialCost += activity.materialCost;
@@ -3533,7 +3702,12 @@ function buildSchedulerReportGroups(
           materialCost: floorGroup.materialCost,
           labourCost: floorGroup.labourCost,
           equipmentCost: floorGroup.equipmentCost,
-          unitRows: floorGroup.unitRows.sort(compareReportUnitRows),
+          unitRows: floorGroup.unitRows
+            .map((row) => ({
+              ...row,
+              activities: row.activities.map((activity) => ({ ...activity })),
+            }))
+            .sort(compareReportUnitRows),
         }))
         .sort(compareReportFloorGroups),
     }))
@@ -3611,6 +3785,10 @@ function getReportActivityBucketSortIndex(activityBucket: string) {
 
 function getReportUnitEstimatedCost(row: SchedulerReportUnitRow) {
   return row.materialCost + row.labourCost + row.equipmentCost;
+}
+
+function getReportActivityEstimatedCost(activity: SchedulerReportActivityRow) {
+  return activity.materialCost + activity.labourCost + activity.equipmentCost;
 }
 
 function getReportUnitCost(row: SchedulerReportUnitRow) {
@@ -3730,6 +3908,7 @@ function buildBlankActivity(
     materialCost: 0,
     labourCost: 0,
     equipmentCost: 0,
+    ganttColor: "",
     predecessorIds: [],
   };
 }

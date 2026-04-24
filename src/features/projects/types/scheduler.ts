@@ -19,6 +19,7 @@ export type SchedulerActivity = {
   materialCost: number;
   labourCost: number;
   equipmentCost: number;
+  ganttColor: string;
   predecessorIds: string[];
 };
 

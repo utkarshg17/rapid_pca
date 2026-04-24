@@ -184,6 +184,7 @@ async function upsertActivities(
       material_cost: normalizeCost(activity.materialCost),
       labour_cost: normalizeCost(activity.labourCost),
       equipment_cost: normalizeCost(activity.equipmentCost),
+      gantt_color: normalizeGanttColor(activity.ganttColor),
       is_active: true,
     };
   });
@@ -358,4 +359,10 @@ function normalizeQuantity(value: string | number | null) {
   }
 
   return numericValue;
+}
+
+function normalizeGanttColor(value: string) {
+  const trimmedValue = value.trim();
+
+  return trimmedValue || null;
 }
